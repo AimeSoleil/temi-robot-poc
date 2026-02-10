@@ -1,8 +1,6 @@
 package com.example.temiphone
 
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.util.Log
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
@@ -17,9 +15,7 @@ class ControllerActivity : AppCompatActivity() {
     private lateinit var connectionStatus: TextView
     private lateinit var statusText: TextView
     private lateinit var zeeloLocationText: TextView
-    private lateinit var editPollInterval: EditText
-    private lateinit var btnStartPoll: Button
-    private lateinit var btnStopPoll: Button
+    private lateinit var btnToggleAutoPublish: Button
     private lateinit var editLatitude: EditText
     private lateinit var editLongitude: EditText
     private lateinit var editHkE: EditText
@@ -28,8 +24,12 @@ class ControllerActivity : AppCompatActivity() {
     private lateinit var btnSendManualLocation: Button
 
     private val gson = Gson()
-    private val pollHandler = Handler(Looper.getMainLooper())
-    private var polling = false
+
+    /** Whether to auto-publish Zeelo SDK callbacks to MQTT */
+    private var autoPublishEnabled = false
+
+    /** Timestamp of the last MQTT publish (for throttling) */
+    private var lastPublishTimeMs = 0L
 
     companion object {
         private const val TAG = "ControllerActivity"
@@ -49,7 +49,6 @@ class ControllerActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        stopPolling()
         locationApiClient.stopLocationService()
         mqttManager.disconnect()
     }
@@ -60,9 +59,7 @@ class ControllerActivity : AppCompatActivity() {
         connectionStatus = findViewById(R.id.connectionStatus)
         statusText = findViewById(R.id.statusText)
         zeeloLocationText = findViewById(R.id.zeeloLocationText)
-        editPollInterval = findViewById(R.id.editPollInterval)
-        btnStartPoll = findViewById(R.id.btnStartPoll)
-        btnStopPoll = findViewById(R.id.btnStopPoll)
+        btnToggleAutoPublish = findViewById(R.id.btnToggleAutoPublish)
         editLatitude = findViewById(R.id.editLatitude)
         editLongitude = findViewById(R.id.editLongitude)
         editHkE = findViewById(R.id.editHkE)
@@ -113,8 +110,18 @@ class ControllerActivity : AppCompatActivity() {
                 gpsLocation: zeelo.location.data.GPSLocation?,
                 source: zeelo.location.data.LocationSource?
             ) {
-                // Just update the cached state; the poll timer will publish.
-                runOnUiThread { updateZeeloLocationDisplay() }
+                runOnUiThread {
+                    updateZeeloLocationDisplay()
+
+                    // Auto-publish to MQTT if enabled, respecting minimum interval
+                    if (autoPublishEnabled) {
+                        val now = System.currentTimeMillis()
+                        if (now - lastPublishTimeMs >= Config.ZEELO_MIN_PUBLISH_INTERVAL_MS) {
+                            publishZeeloLocation()
+                            lastPublishTimeMs = now
+                        }
+                    }
+                }
             }
 
             override fun onError(error: String) {
@@ -152,39 +159,22 @@ class ControllerActivity : AppCompatActivity() {
         }
     }
 
-    // ──────────────────────────── polling ──────────────────────────────
+    // ──────────────────────────── auto-publish toggle ──────────────────
 
-    private val pollRunnable = object : Runnable {
-        override fun run() {
-            publishZeeloLocation()
-            pollHandler.postDelayed(this, getPollIntervalMs())
+    private fun toggleAutoPublish() {
+        autoPublishEnabled = !autoPublishEnabled
+        if (autoPublishEnabled) {
+            btnToggleAutoPublish.text = "Stop Auto-Publish"
+            btnToggleAutoPublish.setBackgroundColor(0xFFF44336.toInt())
+            lastPublishTimeMs = 0L  // allow immediate first publish
+            statusText.text = "Auto-publish ON (min interval: ${Config.ZEELO_MIN_PUBLISH_INTERVAL_MS / 1000}s)"
+            Log.d(TAG, "Auto-publish enabled")
+        } else {
+            btnToggleAutoPublish.text = "Start Auto-Publish"
+            btnToggleAutoPublish.setBackgroundColor(0xFF4CAF50.toInt())
+            statusText.text = "Auto-publish OFF"
+            Log.d(TAG, "Auto-publish disabled")
         }
-    }
-
-    private fun startPolling() {
-        if (polling) return
-        polling = true
-        btnStartPoll.isEnabled = false
-        btnStopPoll.isEnabled = true
-        editPollInterval.isEnabled = false
-        statusText.text = "Auto-poll started (every ${getPollIntervalMs() / 1000}s)"
-        // Publish immediately, then repeat
-        publishZeeloLocation()
-        pollHandler.postDelayed(pollRunnable, getPollIntervalMs())
-    }
-
-    private fun stopPolling() {
-        polling = false
-        pollHandler.removeCallbacks(pollRunnable)
-        btnStartPoll.isEnabled = true
-        btnStopPoll.isEnabled = false
-        editPollInterval.isEnabled = true
-        statusText.text = "Auto-poll stopped"
-    }
-
-    private fun getPollIntervalMs(): Long {
-        val seconds = editPollInterval.text.toString().toLongOrNull() ?: 10
-        return (seconds.coerceAtLeast(1)) * 1000
     }
 
     // ──────────────────────────── publish ──────────────────────────────
@@ -266,8 +256,7 @@ class ControllerActivity : AppCompatActivity() {
     // ──────────────────────────── buttons ──────────────────────────────
 
     private fun setupButtons() {
-        btnStartPoll.setOnClickListener { startPolling() }
-        btnStopPoll.setOnClickListener { stopPolling() }
+        btnToggleAutoPublish.setOnClickListener { toggleAutoPublish() }
         btnSendManualLocation.setOnClickListener { publishManualLocation() }
     }
 }

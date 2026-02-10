@@ -26,11 +26,11 @@
             android:textColor="#FF5722"
             android:layout_marginBottom="16dp" />
 
-        <!-- Zeelo Auto-Poll Section -->
+        <!-- Zeelo SDK Location Section -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Auto-Poll (Zeelo SDK)"
+            android:text="Zeelo Location (SDK Callback)"
             android:textSize="20sp"
             android:textStyle="bold"
             android:layout_marginBottom="8dp" />
@@ -45,52 +45,13 @@
             android:lineSpacingExtra="4dp"
             android:layout_marginBottom="8dp" />
 
-        <LinearLayout
+        <Button
+            android:id="@+id/btnToggleAutoPublish"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="8dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Interval (sec):"
-                android:textSize="14sp"
-                android:layout_marginEnd="8dp" />
-
-            <EditText
-                android:id="@+id/editPollInterval"
-                android:layout_width="80dp"
-                android:layout_height="wrap_content"
-                android:inputType="number"
-                android:text="10"
-                android:gravity="center" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="24dp">
-
-            <Button
-                android:id="@+id/btnStartPoll"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Start Auto-Poll" />
-
-            <Button
-                android:id="@+id/btnStopPoll"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Stop"
-                android:enabled="false"
-                android:backgroundTint="#F44336"
-                android:layout_marginStart="8dp" />
-        </LinearLayout>
+            android:text="Start Auto-Publish"
+            android:backgroundTint="#4CAF50"
+            android:layout_marginBottom="24dp" />
 
         <View
             android:layout_width="match_parent"

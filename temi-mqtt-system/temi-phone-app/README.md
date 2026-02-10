@@ -56,12 +56,13 @@ The Zeelo SDK callback always provides both `location` and `gpsLocation` objects
 - `getActiveFloorLevel()` — floor level from the active source
 - `exportCurrentLocationAsJson()` — builds the full JSON payload with the resolved `"location"` key
 
-### Auto-Poll Timer
+### Event-Driven Publishing
 
-- Configurable interval (default: 10 seconds, set via `ZEELO_POLL_INTERVAL_MS` or the UI input)
-- Start / Stop buttons on the UI
-- Publishes immediately on start, then repeats at the interval
-- Each publish calls `exportCurrentLocationAsJson()` which resolves the active source
+The Zeelo SDK uses a **listener/callback** pattern — `ZeeloLocationCallback.onUpdateLocation` fires whenever the SDK has a new position fix. The app publishes to MQTT directly from this callback, with a configurable **minimum interval** (`ZEELO_MIN_PUBLISH_INTERVAL_MS`, default 10s) to avoid flooding the broker.
+
+- Tap **"Start Auto-Publish"** to enable callback-driven MQTT publishing
+- Tap **"Stop Auto-Publish"** to pause (SDK continues tracking, but nothing is sent)
+- The minimum interval throttle ensures at most one publish per N seconds
 
 ### Manual Location Input
 
@@ -138,7 +139,7 @@ This file is included in the repository and referenced by `build.gradle`.
 | `TOPIC_COMMAND` | `temi/command` | Topic for publishing location to relay |
 | `TOPIC_STATUS` | `temi/status` | Topic for receiving repose status from relay |
 | `ZEELO_ENABLE_HK1980` | `true` | Enable HK1980 grid coordinate output |
-| `ZEELO_POLL_INTERVAL_MS` | `10000` (10s) | Default auto-poll interval in milliseconds |
+| `ZEELO_MIN_PUBLISH_INTERVAL_MS` | `10000` (10s) | Minimum interval between MQTT publishes (throttle). SDK callbacks within this window are skipped. |
 
 ### AndroidManifest.xml — Permissions
 
@@ -176,8 +177,8 @@ temi-phone-app/
 
 Main activity and UI controller.
 
-- **`initializeZeeloSDK()`** — Creates `LocationApiClient`, registers callback for live updates
-- **`startPolling()` / `stopPolling()`** — Manages the auto-poll timer via `Handler`
+- **`initializeZeeloSDK()`** — Creates `LocationApiClient`, registers callback that auto-publishes to MQTT (with throttle)
+- **`toggleAutoPublish()`** — Enables/disables callback-driven MQTT publishing
 - **`publishZeeloLocation()`** — Calls `exportCurrentLocationAsJson()`, wraps in `update_location` command, publishes via MQTT
 - **`publishManualLocation()`** — Reads manual input fields, builds JSON with `locationSource: "Manual"`, publishes
 - **`updateZeeloLocationDisplay()`** — Shows the active source label and resolved coordinates in the UI

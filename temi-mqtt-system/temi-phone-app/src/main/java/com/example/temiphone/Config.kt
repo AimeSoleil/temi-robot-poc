@@ -17,5 +17,5 @@ object Config {
     // The API key is configured in AndroidManifest.xml:
     // <meta-data android:name="com.cherrypicks.zeelo.sdk.api_key" android:value="YOUR_API_KEY" />
     const val ZEELO_ENABLE_HK1980 = true
-    const val ZEELO_POLL_INTERVAL_MS = 10_000L  // Auto-poll interval in ms (10s default)
+    const val ZEELO_MIN_PUBLISH_INTERVAL_MS = 10_000L  // Minimum interval between MQTT publishes (ms). SDK callback-driven, this acts as a throttle.
 }
