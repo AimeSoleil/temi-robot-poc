@@ -8,9 +8,10 @@ A proof-of-concept system that uses **Zeelo indoor location SDK** on a phone to 
 ┌─────────────────────┐       MQTT (temi/command)       ┌──────────────────────┐
 │   Phone App         │ ──────────────────────────────→  │   Temi Pad Relay     │
 │                     │                                  │                      │
-│  Zeelo Location SDK │                                  │  robot.repose(pos)   │
-│  (indoor positioning│       MQTT (temi/status)         │                      │
-│   or manual input)  │ ←──────────────────────────────  │  OnReposeStatus      │
+│  Zeelo Location SDK │                                  │  CoordinateMapper    │
+│  (LocationEngine or │       MQTT (temi/status)         │  + robot.repose()    │
+│   GPS fallback or   │ ←──────────────────────────────  │                      │
+│   manual input)     │                                  │  OnReposeStatus      │
 └─────────────────────┘                                  └──────────────────────┘
          │                                                        │
          │  Zeelo SDK polls                              temi SDK repose()
@@ -26,50 +27,71 @@ A proof-of-concept system that uses **Zeelo indoor location SDK** on a phone to 
 ## Data Flow
 
 ```
-1. Phone App  ─── Zeelo SDK callback or manual input ───→  lat, lon, hkE, hkN, floor, direction
+1. Phone App  ─── Zeelo SDK callback ───→  location, gpsLocation, locationSource, direction
                          │
 2.                       ▼
+               Resolve active location by locationSource:
+                 "LocationEngine" → use location object  (Zeelo indoor)
+                 "GPS"            → use gpsLocation object (GPS fallback)
+               The resolved data is placed into the "location" key.
+                         │
+3.                       ▼
                Build JSON command:
                {
                  "action": "update_location",
                  "location_data": {
-                   "location": {
+                   "location": {              ← resolved from active source
                      "latitude": 22.25, "longitude": 113.56,
                      "hkE": 773218.82, "hkN": 812570.95,
-                     "floorLevel": 7, ...
+                     "floorLevel": 7, "geofenceName": "BLDG0001", ...
                    },
-                   "locationSource": "LocationEngine" | "Manual",
+                   "gpsLocation": { ... },    ← raw GPS (always included if available)
+                   "locationSource": "LocationEngine" | "GPS" | "Manual",
                    "direction": 54.96,
                    "timestamp": 1707560000000
                  }
                }
                          │
-3.                       ▼
+4.                       ▼
                Publish to MQTT topic: temi/command
                          │
-4. Relay App  ←── subscribes to temi/command ────────────  receives JSON
+5. Relay App  ←── subscribes to temi/command ────────────  receives JSON
                          │
-5.                       ▼
+6.                       ▼
+               Resolve active location by locationSource:
+                 "LocationEngine" / "Manual" → read "location" object
+                 "GPS"                       → read "gpsLocation" (fallback to "location")
+               Extract hkE, hkN from resolved object.
+                         │
+7.                       ▼
                CoordinateMapper: HK1980 (hkE, hkN) ──affine──→ temi (x, y, yaw)
                Call  robot.repose(position)
                          │
-6.                       ▼
+8.                       ▼
                OnReposeStatusChanged callback:
                IDLE → START → GOING → COMPLETE ✓
                          │
-7.                       ▼
+9.                       ▼
                Publish status to MQTT topic: temi/status
                { "status": "repose_4", "detail": "Repose Complete" }
                          │
-8. Phone App  ←── subscribes to temi/status ─────────────  displays result
+10. Phone App ←── subscribes to temi/status ─────────────  displays result
 ```
 
 ## MQTT Topics
 
 | Topic | Direction | Payload | Description |
 |-------|-----------|---------|-------------|
-| `temi/command` | Phone → Relay | `{ "action": "update_location", "location_data": { ... } }` | Location update that triggers `robot.repose()` |
-| `temi/status` | Relay → Phone | `{ "status": "...", "detail": "...", "timestamp": ... }` | Repose status / errors feedback |
+| `temi/command` | Phone → Relay | `{ "action": "update_location", "location_data": { "location": {...}, "gpsLocation": {...}, "locationSource": "...", "direction": ..., "timestamp": ... } }` | Location update; `locationSource` indicates which object holds the active position |
+| `temi/status` | Relay → Phone | `{ "status": "...", "detail": "...", "timestamp": ... }` | Repose status, calibration status, or error feedback |
+
+### `locationSource` Values
+
+| Value | Active Object | Meaning |
+|-------|---------------|:--------|
+| `"LocationEngine"` | `location` | Zeelo indoor positioning (high accuracy in coverage areas) |
+| `"GPS"` | `gpsLocation` | GPS fallback (lower accuracy, outdoor) |
+| `"Manual"` | `location` | Manually entered coordinates from the phone app |
 
 ## Project Structure
 
@@ -84,8 +106,8 @@ temi-mqtt-system/
 │   └── src/main/
 │       ├── AndroidManifest.xml  ← permissions + Zeelo API key
 │       ├── java/com/example/temiphone/
-│       │   ├── ControllerActivity.kt   ← UI: auto-poll + manual input
-│       │   ├── LocationApiClient.kt    ← Zeelo SDK wrapper
+│       │   ├── ControllerActivity.kt   ← UI: auto-poll + manual input, source display
+│       │   ├── LocationApiClient.kt    ← Zeelo SDK wrapper, source-aware active location
 │       │   ├── MqttManager.kt         ← MQTT publish/subscribe
 │       │   └── Config.kt              ← broker URL, topics, poll interval
 │       └── res/layout/activity_controller.xml
@@ -95,7 +117,7 @@ temi-mqtt-system/
 │   └── src/main/
 │       ├── AndroidManifest.xml
 │       ├── java/com/example/temirelay/
-│       │   ├── RelayActivity.kt       ← listens for location → maps → calls repose()
+│       │   ├── RelayActivity.kt       ← source resolution → maps → calls repose()
 │       │   ├── CoordinateMapper.kt    ← HK1980 → temi affine transform + calibration
 │       │   ├── MqttRelayManager.kt    ← MQTT client
 │       │   └── Config.kt             ← broker URL, topics, mapping settings
@@ -110,22 +132,36 @@ temi-mqtt-system/
 
 ## Phone App — Features
 
-The phone app has **two modes** for sending location data to the relay:
+The phone app has **three location sources** and resolves the active one automatically:
 
-| Mode | How it works |
-|------|-------------|
-| **Auto-Poll (Zeelo SDK)** | Zeelo SDK tracks indoor position continuously. A configurable timer (default 10 s) reads the latest cached location and publishes it to MQTT. |
-| **Manual Input** | User enters latitude, longitude, HK1980 Easting/Northing, and floor level manually and taps "Send". |
+| Mode | `locationSource` | How it works |
+|------|------------------|--------------|
+| **Auto-Poll (Zeelo Indoor)** | `"LocationEngine"` | Zeelo SDK tracks indoor position using its fingerprinting database. Active location is read from the `location` object. |
+| **Auto-Poll (GPS Fallback)** | `"GPS"` | When outside Zeelo coverage, the SDK falls back to GPS. Active location is read from the `gpsLocation` object. |
+| **Manual Input** | `"Manual"` | User enters latitude, longitude, HK1980 Easting/Northing, and floor level manually and taps "Send". |
+
+### Source Resolution (`LocationApiClient`)
+
+The SDK callback provides both `location` and `gpsLocation` objects. The `locationSource` field determines which one is the **active** position:
+
+- `isIndoorSource()` — returns `true` when source is `"LocationEngine"`
+- `getActiveLatitude()`, `getActiveLongitude()`, `getActiveHkE()`, `getActiveHkN()`, `getActiveFloorLevel()` — return values from the active source
+- `exportCurrentLocationAsJson()` — places the resolved active data into the `"location"` key and includes raw `"gpsLocation"` when available
+
+The UI displays the current source label and coordinates from the resolved active location.
 
 ## Relay App — Features
 
-The relay app handles **coordinate mapping** and **repose**:
+The relay app handles **source resolution**, **coordinate mapping**, and **repose**:
 
 1. Subscribes to `temi/command`
-2. On receiving `update_location` → extracts HK1980 `hkE`, `hkN`
-3. **CoordinateMapper** transforms HK1980 → temi map coordinates using a calibrated affine transform
-4. Calls `robot.repose(Position(x, y, yaw))` with the mapped position
-5. Listens to `OnReposeStatusChangedListener` and publishes repose status back to `temi/status`
+2. On receiving `update_location` → checks `locationSource`:
+   - `"LocationEngine"` or `"Manual"` → reads the `location` object
+   - `"GPS"` → reads the `gpsLocation` object (falls back to `location` if absent)
+3. Extracts `hkE`, `hkN` from the resolved object
+4. **CoordinateMapper** transforms HK1980 → temi map coordinates using a calibrated affine transform
+5. Calls `robot.repose(Position(x, y, yaw))` with the mapped position
+6. Listens to `OnReposeStatusChangedListener` and publishes repose status back to `temi/status`
 
 ### Coordinate Mapping & Calibration
 
@@ -309,6 +345,7 @@ Default MQTT credentials (set in `mosquitto/setup.sh`):
 
 ## Important Notes
 
+- **Location source resolution:** The `locationSource` field in the Zeelo SDK callback determines which position object is active. `"LocationEngine"` uses the `location` object (Zeelo indoor positioning), `"GPS"` uses the `gpsLocation` object (GPS fallback). Both the phone app and relay app resolve this automatically.
 - **Coordinate mapping:** The relay uses a **calibrated affine transform** (`CoordinateMapper`) to convert Zeelo HK1980 grid coordinates to temi map coordinates. You must run the on-device calibration (two anchor points) before repose will work correctly. See the "Coordinate Mapping & Calibration" section above.
 - **Zeelo API key:** Must be obtained from Zeelo and set in `AndroidManifest.xml` before the phone app can get indoor positioning.
 - **Device sensors:** Zeelo SDK requires gyroscope + magnetometer; not all budget phones have these.
