@@ -2,7 +2,9 @@ package com.example.temirelay
 
 import android.os.Bundle
 import android.util.Log
+import android.widget.Button
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.gson.Gson
 import com.google.gson.JsonObject
@@ -16,12 +18,36 @@ class RelayActivity : AppCompatActivity(),
     OnReposeStatusChangedListener {
 
     private lateinit var mqttManager: MqttRelayManager
+    private lateinit var coordinateMapper: CoordinateMapper
+
+    // UI – status
     private lateinit var connectionStatus: TextView
     private lateinit var statusText: TextView
+
+    // UI – calibration
+    private lateinit var calibrationStatus: TextView
+    private lateinit var robotPositionText: TextView
+    private lateinit var zeeloPositionText: TextView
+    private lateinit var btnCaptureA: Button
+    private lateinit var btnCaptureB: Button
+    private lateinit var btnCalibrate: Button
+    private lateinit var btnResetCalibration: Button
+
+    // UI – location / repose
     private lateinit var locationText: TextView
+    private lateinit var mappedPositionText: TextView
     private lateinit var reposeStatusText: TextView
+
     private val gson = Gson()
     private var robotReady = false
+
+    // Calibration staging
+    private var pendingAnchorA: CoordinateMapper.Anchor? = null
+    private var pendingAnchorB: CoordinateMapper.Anchor? = null
+
+    // Latest Zeelo data (set by incoming MQTT, used by calibration capture)
+    private var latestHkE: Double? = null
+    private var latestHkN: Double? = null
 
     companion object {
         private const val TAG = "RelayActivity"
@@ -33,12 +59,12 @@ class RelayActivity : AppCompatActivity(),
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_relay)
 
-        connectionStatus = findViewById(R.id.connectionStatus)
-        statusText = findViewById(R.id.statusText)
-        locationText = findViewById(R.id.locationText)
-        reposeStatusText = findViewById(R.id.reposeStatusText)
+        coordinateMapper = CoordinateMapper(this)
 
+        initViews()
+        setupCalibrationButtons()
         setupMqtt()
+        refreshCalibrationUI()
     }
 
     override fun onStart() {
@@ -58,6 +84,25 @@ class RelayActivity : AppCompatActivity(),
         mqttManager.disconnect()
     }
 
+    // ──────────────────────────── views ────────────────────────────────
+
+    private fun initViews() {
+        connectionStatus = findViewById(R.id.connectionStatus)
+        statusText = findViewById(R.id.statusText)
+
+        calibrationStatus = findViewById(R.id.calibrationStatus)
+        robotPositionText = findViewById(R.id.robotPositionText)
+        zeeloPositionText = findViewById(R.id.zeeloPositionText)
+        btnCaptureA = findViewById(R.id.btnCaptureA)
+        btnCaptureB = findViewById(R.id.btnCaptureB)
+        btnCalibrate = findViewById(R.id.btnCalibrate)
+        btnResetCalibration = findViewById(R.id.btnResetCalibration)
+
+        locationText = findViewById(R.id.locationText)
+        mappedPositionText = findViewById(R.id.mappedPositionText)
+        reposeStatusText = findViewById(R.id.reposeStatusText)
+    }
+
     // ──────────────────────────── robot callbacks ──────────────────────
 
     override fun onRobotReady(isReady: Boolean) {
@@ -65,7 +110,10 @@ class RelayActivity : AppCompatActivity(),
         if (isReady) {
             Log.d(TAG, "Robot is ready")
             publishStatus("ready", "Robot is ready")
-            runOnUiThread { statusText.text = "Robot Ready" }
+            runOnUiThread {
+                statusText.text = "Robot Ready"
+                updateRobotPositionDisplay()
+            }
         }
     }
 
@@ -83,6 +131,120 @@ class RelayActivity : AppCompatActivity(),
         Log.d(TAG, "Repose status: $label – $description")
         publishStatus("repose_$status", "$label: $description")
         runOnUiThread { reposeStatusText.text = "Repose: $label" }
+    }
+
+    // ──────────────────────────── calibration ─────────────────────────
+
+    private fun setupCalibrationButtons() {
+
+        btnCaptureA.setOnClickListener { captureAnchor("A") }
+        btnCaptureB.setOnClickListener { captureAnchor("B") }
+
+        btnCalibrate.setOnClickListener {
+            val a = pendingAnchorA
+            val b = pendingAnchorB
+            if (a == null || b == null) {
+                Toast.makeText(this, "Capture both A and B first", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val ok = coordinateMapper.calibrate(a, b)
+            if (ok) {
+                Toast.makeText(this, "Calibration complete ✓", Toast.LENGTH_SHORT).show()
+                publishStatus("calibrated", coordinateMapper.getCalibrationSummary())
+            } else {
+                Toast.makeText(this, "Calibration failed – anchors too close", Toast.LENGTH_LONG).show()
+            }
+            refreshCalibrationUI()
+        }
+
+        btnResetCalibration.setOnClickListener {
+            coordinateMapper.resetCalibration()
+            pendingAnchorA = null
+            pendingAnchorB = null
+            Toast.makeText(this, "Calibration reset", Toast.LENGTH_SHORT).show()
+            refreshCalibrationUI()
+        }
+    }
+
+    /**
+     * Capture the robot's current temi position + the latest Zeelo HK1980 coords
+     * as a calibration anchor point.
+     */
+    private fun captureAnchor(label: String) {
+        if (!robotReady) {
+            Toast.makeText(this, "Robot not ready", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val hkE = latestHkE
+        val hkN = latestHkN
+        if (hkE == null || hkN == null) {
+            Toast.makeText(this, "No Zeelo location received yet", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Get robot's current position on the temi map
+        val robot = Robot.getInstance()
+        val pos = robot.getPosition()
+        if (pos == null) {
+            Toast.makeText(this, "Cannot read robot position", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val anchor = CoordinateMapper.Anchor(
+            hkE = hkE,
+            hkN = hkN,
+            temiX = pos.x,
+            temiY = pos.y
+        )
+
+        if (label == "A") {
+            pendingAnchorA = anchor
+            btnCaptureA.text = "A ✓"
+        } else {
+            pendingAnchorB = anchor
+            btnCaptureB.text = "B ✓"
+        }
+
+        btnCalibrate.isEnabled = (pendingAnchorA != null && pendingAnchorB != null)
+
+        Log.i(TAG, "Anchor $label captured: $anchor")
+        Toast.makeText(this,
+            "Anchor $label: hk(%.2f, %.2f) ↔ temi(%.3f, %.3f)".format(hkE, hkN, pos.x, pos.y),
+            Toast.LENGTH_LONG).show()
+
+        refreshCalibrationUI()
+    }
+
+    private fun refreshCalibrationUI() {
+        if (coordinateMapper.isCalibrated) {
+            calibrationStatus.text = "Calibrated ✓"
+            calibrationStatus.setTextColor(0xFF4CAF50.toInt())
+        } else {
+            val parts = mutableListOf<String>()
+            if (pendingAnchorA != null) parts.add("A ✓")
+            if (pendingAnchorB != null) parts.add("B ✓")
+            calibrationStatus.text = if (parts.isEmpty()) "Not calibrated"
+            else "Captured: ${parts.joinToString(", ")} – press Calibrate"
+            calibrationStatus.setTextColor(0xFFFF5722.toInt())
+        }
+        updateRobotPositionDisplay()
+    }
+
+    private fun updateRobotPositionDisplay() {
+        if (!robotReady) {
+            robotPositionText.text = "Robot position: not ready"
+            return
+        }
+        try {
+            val pos = Robot.getInstance().getPosition()
+            if (pos != null) {
+                robotPositionText.text = "Robot position: x=%.3f  y=%.3f  yaw=%.1f".format(pos.x, pos.y, pos.yaw)
+            } else {
+                robotPositionText.text = "Robot position: unavailable"
+            }
+        } catch (e: Exception) {
+            robotPositionText.text = "Robot position: error"
+        }
     }
 
     // ──────────────────────────── MQTT ─────────────────────────────────
@@ -125,36 +287,96 @@ class RelayActivity : AppCompatActivity(),
                 return
             }
 
-            // Extract position from Zeelo / manual location
-            val loc = locationData.getAsJsonObject("location")
-            val lat = loc?.get("latitude")?.asFloat ?: 0f
-            val lon = loc?.get("longitude")?.asFloat ?: 0f
-            val floor = loc?.get("floorLevel")?.asInt ?: 0
+            // Resolve active location based on locationSource:
+            //   "LocationEngine" → use "location" object (Zeelo indoor)
+            //   "GPS"            → use "gpsLocation" object (GPS fallback)
+            //   "Manual"         → use "location" object
             val source = locationData.get("locationSource")?.asString ?: "Unknown"
-            val geofence = loc?.get("geofenceName")?.asString ?: ""
+            val activeLoc = when (source) {
+                "GPS" -> locationData.getAsJsonObject("gpsLocation")
+                    ?: locationData.getAsJsonObject("location")
+                else -> locationData.getAsJsonObject("location")
+            }
 
-            // Update UI
+            if (activeLoc == null) {
+                Log.w(TAG, "update_location: no location object for source=$source")
+                return
+            }
+
+            val lat = activeLoc.get("latitude")?.asDouble ?: 0.0
+            val lon = activeLoc.get("longitude")?.asDouble ?: 0.0
+            val hkE = activeLoc.get("hkE")?.asDouble
+            val hkN = activeLoc.get("hkN")?.asDouble
+            val floor = activeLoc.get("floorLevel")?.asInt ?: 0
+            val geofence = activeLoc.get("geofenceName")?.asString ?: ""
+            val direction = locationData.get("direction")?.asFloat ?: Config.DEFAULT_YAW
+
+            // Cache latest Zeelo data for calibration capture
+            if (hkE != null && hkN != null && hkE != 0.0 && hkN != 0.0) {
+                latestHkE = hkE
+                latestHkN = hkN
+            }
+
+            // Build display summary
             val summary = buildString {
                 append("Lat: ${String.format("%.6f", lat)}\n")
                 append("Lon: ${String.format("%.6f", lon)}\n")
+                if (hkE != null && hkN != null) {
+                    append("HK1980: E=%.2f  N=%.2f\n".format(hkE, hkN))
+                }
                 append("Floor: $floor")
                 if (geofence.isNotEmpty()) append("  |  Geofence: $geofence")
                 append("\nSource: $source")
             }
+
             runOnUiThread {
                 locationText.text = summary
-                statusText.text = "Location received – calling repose"
+                zeeloPositionText.text = if (hkE != null && hkN != null)
+                    "Zeelo location: hkE=%.2f  hkN=%.2f".format(hkE, hkN)
+                else "Zeelo location: (no HK1980 data)"
+                updateRobotPositionDisplay()
             }
 
-            // Call temi SDK repose with the received position
-            // Position(x, y, yaw) – we map lat→x, lon→y, yaw=0
-            val position = Position(lat, lon, 0f, 0)
-            Log.d(TAG, "Calling repose with Position(x=$lat, y=$lon, yaw=0)")
+            // ── Map Zeelo coordinates to temi Position ──────────────
+            val position: Position?
 
-            val robot = Robot.getInstance()
-            robot.repose(position)
+            if (Config.USE_HK1980_MAPPING && hkE != null && hkN != null && hkE != 0.0 && hkN != 0.0) {
+                // Use calibrated affine transform (HK1980 → temi map)
+                if (!coordinateMapper.isCalibrated) {
+                    Log.w(TAG, "Not calibrated – skipping repose")
+                    runOnUiThread {
+                        statusText.text = "⚠ Not calibrated – calibrate first"
+                        mappedPositionText.text = "Mapped temi position: needs calibration"
+                    }
+                    publishStatus("not_calibrated", "Location received but coordinate mapper is not calibrated")
+                    return
+                }
+                position = coordinateMapper.toTemiPosition(hkE, hkN, direction)
+            } else {
+                // Fallback: raw lat/lon directly (not recommended – only for testing)
+                Log.w(TAG, "Using raw lat/lon as Position – only for testing")
+                position = Position(lat.toFloat(), lon.toFloat(), direction, 0)
+            }
 
-            publishStatus("reposing", "Repose started (x=$lat, y=$lon)")
+            if (position == null) {
+                Log.e(TAG, "Failed to map position")
+                runOnUiThread {
+                    statusText.text = "Mapping error"
+                    mappedPositionText.text = "Mapped temi position: error"
+                }
+                return
+            }
+
+            runOnUiThread {
+                statusText.text = "Location received – calling repose"
+                mappedPositionText.text = "Mapped temi: x=%.3f  y=%.3f  yaw=%.1f".format(
+                    position.x, position.y, position.yaw)
+            }
+
+            Log.d(TAG, "Calling repose with Position(x=${position.x}, y=${position.y}, yaw=${position.yaw})")
+            Robot.getInstance().repose(position)
+            publishStatus("reposing",
+                "Repose started (x=%.3f, y=%.3f, yaw=%.1f)".format(position.x, position.y, position.yaw))
 
         } catch (e: Exception) {
             Log.e(TAG, "Error handling command", e)

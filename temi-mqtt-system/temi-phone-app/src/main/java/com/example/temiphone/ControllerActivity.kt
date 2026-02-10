@@ -22,6 +22,8 @@ class ControllerActivity : AppCompatActivity() {
     private lateinit var btnStopPoll: Button
     private lateinit var editLatitude: EditText
     private lateinit var editLongitude: EditText
+    private lateinit var editHkE: EditText
+    private lateinit var editHkN: EditText
     private lateinit var editFloor: EditText
     private lateinit var btnSendManualLocation: Button
 
@@ -63,6 +65,8 @@ class ControllerActivity : AppCompatActivity() {
         btnStopPoll = findViewById(R.id.btnStopPoll)
         editLatitude = findViewById(R.id.editLatitude)
         editLongitude = findViewById(R.id.editLongitude)
+        editHkE = findViewById(R.id.editHkE)
+        editHkN = findViewById(R.id.editHkN)
         editFloor = findViewById(R.id.editFloor)
         btnSendManualLocation = findViewById(R.id.btnSendManualLocation)
     }
@@ -123,17 +127,28 @@ class ControllerActivity : AppCompatActivity() {
     }
 
     private fun updateZeeloLocationDisplay() {
-        val loc = locationApiClient.getCurrentLocation()
-        if (loc == null) {
+        val lat = locationApiClient.getActiveLatitude()
+        val lon = locationApiClient.getActiveLongitude()
+        if (lat == null || lon == null) {
             zeeloLocationText.text = "Location: Waiting for Zeelo SDK..."
             return
         }
+        val source = locationApiClient.getLocationSourceName()
+        val hkE = locationApiClient.getActiveHkE()
+        val hkN = locationApiClient.getActiveHkN()
+        val floor = locationApiClient.getActiveFloorLevel() ?: 0
         zeeloLocationText.text = buildString {
-            append("Lat: ${String.format("%.6f", loc.latitude)}\n")
-            append("Lon: ${String.format("%.6f", loc.longitude)}\n")
-            append("Floor: ${loc.floorLevel}")
-            val gf = loc.geofenceName
-            if (!gf.isNullOrEmpty()) append("  |  Geofence: $gf")
+            append("Source: $source\n")
+            append("Lat: ${String.format("%.6f", lat)}\n")
+            append("Lon: ${String.format("%.6f", lon)}\n")
+            if (hkE != null && hkN != null) {
+                append("HK1980: E=%.2f  N=%.2f\n".format(hkE, hkN))
+            }
+            append("Floor: $floor")
+            if (locationApiClient.isIndoorSource()) {
+                val gf = locationApiClient.getCurrentLocation()?.geofenceName
+                if (!gf.isNullOrEmpty()) append("  |  Geofence: $gf")
+            }
         }
     }
 
@@ -195,6 +210,8 @@ class ControllerActivity : AppCompatActivity() {
     private fun publishManualLocation() {
         val latStr = editLatitude.text.toString().trim()
         val lonStr = editLongitude.text.toString().trim()
+        val hkEStr = editHkE.text.toString().trim()
+        val hkNStr = editHkN.text.toString().trim()
         val floorStr = editFloor.text.toString().trim()
 
         if (latStr.isEmpty() || lonStr.isEmpty()) {
@@ -209,21 +226,25 @@ class ControllerActivity : AppCompatActivity() {
             return
         }
 
+        val hkE = hkEStr.toDoubleOrNull() ?: 0.0
+        val hkN = hkNStr.toDoubleOrNull() ?: 0.0
+
         try {
             val locationData = JsonObject().apply {
                 add("location", JsonObject().apply {
                     addProperty("latitude", lat)
                     addProperty("longitude", lon)
+                    addProperty("hkE", hkE)
+                    addProperty("hkN", hkN)
                     addProperty("floorLevel", floorStr.toIntOrNull() ?: 0)
                     addProperty("isOutDoor", false)
                     addProperty("geofenceName", "")
                     addProperty("geofenceId", "")
                     addProperty("floorName", "")
                     addProperty("coverageArea", false)
-                    addProperty("hkE", 0.0)
-                    addProperty("hkN", 0.0)
                 })
                 addProperty("locationSource", "Manual")
+                addProperty("direction", 0.0)
                 addProperty("timestamp", System.currentTimeMillis())
             }
             val command = JsonObject().apply {
@@ -231,7 +252,11 @@ class ControllerActivity : AppCompatActivity() {
                 add("location_data", locationData)
             }
             mqttManager.publishCommand(command.toString())
-            statusText.text = "Manual location sent  (lat=$latStr, lon=$lonStr, floor=${floorStr.ifEmpty { "0" }})"
+            statusText.text = buildString {
+                append("Manual sent: lat=$latStr, lon=$lonStr")
+                if (hkE != 0.0 || hkN != 0.0) append(", hkE=$hkEStr, hkN=$hkNStr")
+                append(", floor=${floorStr.ifEmpty { "0" }}")
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error publishing manual location", e)
             statusText.text = "Send error: ${e.message}"

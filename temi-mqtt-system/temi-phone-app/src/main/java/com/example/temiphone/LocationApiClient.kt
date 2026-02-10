@@ -82,12 +82,19 @@ class LocationApiClient(private val context: Context) {
                         currentGpsLocation = gpsLocation
                         currentLocationSource = locationSource
                         
-                        Log.d(TAG, "Location updated: " +
-                            "lat=${location?.latitude}, " +
-                            "lon=${location?.longitude}, " +
-                            "floor=${location?.floorLevel}, " +
-                            "geofence=${location?.geofenceName}, " +
-                            "source=${locationSource?.source}")
+                        // Log the active source and its resolved coordinates
+                        val srcName = locationSource?.source?.toString() ?: "Unknown"
+                        val isIndoor = srcName == "LocationEngine"
+                        val activeLat = if (isIndoor) location?.latitude else gpsLocation?.latitude
+                        val activeLon = if (isIndoor) location?.longitude else gpsLocation?.longitude
+                        val activeHkE = if (isIndoor) location?.hkE else gpsLocation?.hkE
+                        val activeHkN = if (isIndoor) location?.hkN else gpsLocation?.hkN
+                        
+                        Log.d(TAG, "Location updated [source=$srcName]: " +
+                            "lat=$activeLat, lon=$activeLon, " +
+                            "hkE=$activeHkE, hkN=$activeHkN, " +
+                            "floor=${if (isIndoor) location?.floorLevel else gpsLocation?.floorLevel}, " +
+                            "geofence=${location?.geofenceName}")
                         
                         // Notify callback
                         locationCallback?.onLocationUpdated(location, gpsLocation, locationSource)
@@ -193,13 +200,71 @@ class LocationApiClient(private val context: Context) {
     fun getCurrentGeofence(): Pair<String, String> = Pair(currentGeofenceId, currentGeofenceName)
 
     /**
-     * Export current location as JSON (useful for MQTT publishing)
+     * Get the current location source string.
+     * "LocationEngine" = Zeelo indoor, "GPS" = GPS fallback.
+     */
+    fun getLocationSourceName(): String {
+        return currentLocationSource?.source?.toString() ?: "Unknown"
+    }
+
+    /**
+     * Whether the current positioning comes from Zeelo's indoor engine
+     * (as opposed to raw GPS fallback).
+     */
+    fun isIndoorSource(): Boolean {
+        return getLocationSourceName() == "LocationEngine"
+    }
+
+    // ────────────────────── active-location helpers ────────────────────
+
+    /**
+     * Resolved latitude from the active source.
+     * LocationEngine → [currentLocation], GPS → [currentGpsLocation].
+     */
+    fun getActiveLatitude(): Double? =
+        if (isIndoorSource()) currentLocation?.latitude else currentGpsLocation?.latitude
+
+    fun getActiveLongitude(): Double? =
+        if (isIndoorSource()) currentLocation?.longitude else currentGpsLocation?.longitude
+
+    fun getActiveHkE(): Double? =
+        if (isIndoorSource()) currentLocation?.hkE else currentGpsLocation?.hkE
+
+    fun getActiveHkN(): Double? =
+        if (isIndoorSource()) currentLocation?.hkN else currentGpsLocation?.hkN
+
+    fun getActiveFloorLevel(): Int? =
+        if (isIndoorSource()) currentLocation?.floorLevel else currentGpsLocation?.floorLevel
+
+    // ────────────────────── JSON export ────────────────────────────────
+
+    /**
+     * Export the **active** location as a flat JSON ready for MQTT.
+     *
+     * The `location` key always contains the resolved position
+     * (from either [currentLocation] or [currentGpsLocation] depending
+     * on [currentLocationSource]).
+     *
+     * Structure:
+     * ```
+     * {
+     *   "location": { lat, lon, hkE, hkN, floor, geofence, ... },
+     *   "gpsLocation": { ... },           // raw GPS object (if available)
+     *   "locationSource": "LocationEngine" | "GPS",
+     *   "direction": 54.96,
+     *   "timestamp": ...
+     * }
+     * ```
      */
     fun exportCurrentLocationAsJson(): String {
         return try {
+            val sourceName = getLocationSourceName()
+            val isIndoor = isIndoorSource()
+
             val locationJson = JsonObject().apply {
-                if (currentLocation != null) {
-                    add("location", JsonObject().apply {
+                // ── "location" = resolved active position ──
+                add("location", JsonObject().apply {
+                    if (isIndoor && currentLocation != null) {
                         addProperty("latitude", currentLocation?.latitude)
                         addProperty("longitude", currentLocation?.longitude)
                         addProperty("hkE", currentLocation?.hkE)
@@ -210,8 +275,22 @@ class LocationApiClient(private val context: Context) {
                         addProperty("geofenceId", currentLocation?.geofenceId)
                         addProperty("floorName", currentLocation?.floorName)
                         addProperty("coverageArea", currentLocation?.coverageArea)
-                    })
-                }
+                    } else if (currentGpsLocation != null) {
+                        // GPS fallback – map GPSLocation fields into the same shape
+                        addProperty("latitude", currentGpsLocation?.latitude)
+                        addProperty("longitude", currentGpsLocation?.longitude)
+                        addProperty("hkE", currentGpsLocation?.hkE)
+                        addProperty("hkN", currentGpsLocation?.hkN)
+                        addProperty("floorLevel", currentGpsLocation?.floorLevel)
+                        addProperty("isOutDoor", true)
+                        addProperty("geofenceName", "")
+                        addProperty("geofenceId", "")
+                        addProperty("floorName", "")
+                        addProperty("coverageArea", false)
+                    }
+                })
+
+                // ── raw gpsLocation (always include if available) ──
                 if (currentGpsLocation != null) {
                     add("gpsLocation", JsonObject().apply {
                         addProperty("latitude", currentGpsLocation?.latitude)
@@ -224,12 +303,15 @@ class LocationApiClient(private val context: Context) {
                         addProperty("directionAccuracy", currentGpsLocation?.directionAccuracy)
                     })
                 }
+
+                addProperty("locationSource", sourceName)
                 addProperty("direction", currentDirection)
-                if (currentLocationSource != null) {
-                    addProperty("locationSource", currentLocationSource?.source?.toString())
-                }
                 addProperty("timestamp", System.currentTimeMillis())
             }
+
+            Log.d(TAG, "Exported location (source=$sourceName): lat=${getActiveLatitude()}, " +
+                "lon=${getActiveLongitude()}, hkE=${getActiveHkE()}, hkN=${getActiveHkN()}")
+
             locationJson.toString()
         } catch (e: Exception) {
             Log.e(TAG, "Error exporting location as JSON", e)

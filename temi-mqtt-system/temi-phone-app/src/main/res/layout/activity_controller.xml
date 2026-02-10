@@ -124,6 +124,22 @@
             android:layout_marginBottom="8dp" />
 
         <EditText
+            android:id="@+id/editHkE"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="HK1980 Easting (e.g. 773218.82)"
+            android:inputType="numberDecimal|numberSigned"
+            android:layout_marginBottom="8dp" />
+
+        <EditText
+            android:id="@+id/editHkN"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="HK1980 Northing (e.g. 812570.95)"
+            android:inputType="numberDecimal|numberSigned"
+            android:layout_marginBottom="8dp" />
+
+        <EditText
             android:id="@+id/editFloor"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"

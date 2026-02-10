@@ -26,15 +26,20 @@ A proof-of-concept system that uses **Zeelo indoor location SDK** on a phone to 
 ## Data Flow
 
 ```
-1. Phone App  ─── Zeelo SDK callback or manual input ───→  lat, lon, floor
+1. Phone App  ─── Zeelo SDK callback or manual input ───→  lat, lon, hkE, hkN, floor, direction
                          │
 2.                       ▼
                Build JSON command:
                {
                  "action": "update_location",
                  "location_data": {
-                   "location": { "latitude": 22.25, "longitude": 113.56, "floorLevel": 7, ... },
+                   "location": {
+                     "latitude": 22.25, "longitude": 113.56,
+                     "hkE": 773218.82, "hkN": 812570.95,
+                     "floorLevel": 7, ...
+                   },
                    "locationSource": "LocationEngine" | "Manual",
+                   "direction": 54.96,
                    "timestamp": 1707560000000
                  }
                }
@@ -45,7 +50,7 @@ A proof-of-concept system that uses **Zeelo indoor location SDK** on a phone to 
 4. Relay App  ←── subscribes to temi/command ────────────  receives JSON
                          │
 5.                       ▼
-               Parse lat/lon → Position(x, y, yaw)
+               CoordinateMapper: HK1980 (hkE, hkN) ──affine──→ temi (x, y, yaw)
                Call  robot.repose(position)
                          │
 6.                       ▼
@@ -90,9 +95,10 @@ temi-mqtt-system/
 │   └── src/main/
 │       ├── AndroidManifest.xml
 │       ├── java/com/example/temirelay/
-│       │   ├── RelayActivity.kt       ← listens for location → calls repose()
+│       │   ├── RelayActivity.kt       ← listens for location → maps → calls repose()
+│       │   ├── CoordinateMapper.kt    ← HK1980 → temi affine transform + calibration
 │       │   ├── MqttRelayManager.kt    ← MQTT client
-│       │   └── Config.kt             ← broker URL, topics
+│       │   └── Config.kt             ← broker URL, topics, mapping settings
 │       └── res/layout/activity_relay.xml
 │
 └── mosquitto/                   ← MQTT broker (Docker)
@@ -109,15 +115,37 @@ The phone app has **two modes** for sending location data to the relay:
 | Mode | How it works |
 |------|-------------|
 | **Auto-Poll (Zeelo SDK)** | Zeelo SDK tracks indoor position continuously. A configurable timer (default 10 s) reads the latest cached location and publishes it to MQTT. |
-| **Manual Input** | User enters latitude, longitude, and floor level manually and taps "Send". |
+| **Manual Input** | User enters latitude, longitude, HK1980 Easting/Northing, and floor level manually and taps "Send". |
 
 ## Relay App — Features
 
-The relay app is minimal:
+The relay app handles **coordinate mapping** and **repose**:
 
 1. Subscribes to `temi/command`
-2. On receiving `update_location` → parses `lat`, `lon` → calls `robot.repose(Position(lat, lon, 0))`
-3. Listens to `OnReposeStatusChangedListener` and publishes repose status back to `temi/status`
+2. On receiving `update_location` → extracts HK1980 `hkE`, `hkN`
+3. **CoordinateMapper** transforms HK1980 → temi map coordinates using a calibrated affine transform
+4. Calls `robot.repose(Position(x, y, yaw))` with the mapped position
+5. Listens to `OnReposeStatusChangedListener` and publishes repose status back to `temi/status`
+
+### Coordinate Mapping & Calibration
+
+The Zeelo SDK reports position in **HK1980 Grid** (hkE / hkN in metres), while the temi SDK uses an **internal map frame** (also in metres, origin at the home-base / charging dock). A 2-D affine transform (translation + rotation + uniform scale) maps between the two.
+
+**Calibration Steps (one-time, on-site):**
+
+1. Start both the phone app and the relay app. Ensure the phone is sending Zeelo location data.
+2. **Drive the robot to Anchor A** — a clearly identifiable spot.
+3. Tap **"Capture A"** on the relay app. This records the robot's temi Position and the latest Zeelo HK1980 location.
+4. **Drive the robot to Anchor B** — a second spot, at least 1–2 metres away from A.
+5. Tap **"Capture B"** on the relay app.
+6. Tap **"Calibrate"**. The app computes the affine transform and saves it to SharedPreferences.
+7. From now on, every incoming Zeelo location is automatically mapped before calling `repose()`.
+
+> **Tips:**
+> - Choose anchors that are far apart (>2 m) for better accuracy.
+> - Calibration is persisted across app restarts.
+> - Tap "Reset Calibration" to start over.
+> - The relay UI shows the robot's current position, latest Zeelo location, and the mapped temi position for debugging.
 
 ## Prerequisites
 
@@ -276,10 +304,12 @@ Default MQTT credentials (set in `mosquitto/setup.sh`):
 | `MQTT_CLIENT_ID` | `temi-pad-relay` | MQTT client ID |
 | `TOPIC_COMMAND` | `temi/command` | Topic for receiving location updates |
 | `TOPIC_STATUS` | `temi/status` | Topic for publishing repose status |
+| `USE_HK1980_MAPPING` | `true` | Use HK1980 coordinates for mapping (requires calibration) |
+| `DEFAULT_YAW` | `0f` | Fallback yaw when direction data is unavailable |
 
 ## Important Notes
 
-- **Coordinate mapping:** The relay currently passes Zeelo lat/lon directly as `Position(x=lat, y=lon, yaw=0)` to `robot.repose()`. If your temi robot's map uses a different coordinate system, you will need to add a mapping/transformation layer.
+- **Coordinate mapping:** The relay uses a **calibrated affine transform** (`CoordinateMapper`) to convert Zeelo HK1980 grid coordinates to temi map coordinates. You must run the on-device calibration (two anchor points) before repose will work correctly. See the "Coordinate Mapping & Calibration" section above.
 - **Zeelo API key:** Must be obtained from Zeelo and set in `AndroidManifest.xml` before the phone app can get indoor positioning.
 - **Device sensors:** Zeelo SDK requires gyroscope + magnetometer; not all budget phones have these.
 - **Network:** Both apps and the MQTT broker must be reachable on the same network.

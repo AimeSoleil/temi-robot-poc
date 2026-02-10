@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
+    android:layout_height="match_parent">
+
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:gravity="center"
+    android:gravity="center_horizontal"
     android:padding="32dp">
 
     <TextView
@@ -21,7 +25,7 @@
         android:text="MQTT: Disconnected"
         android:textSize="16sp"
         android:textColor="#FF5722"
-        android:layout_marginBottom="16dp" />
+        android:layout_marginBottom="8dp" />
 
     <TextView
         android:id="@+id/statusText"
@@ -30,13 +34,98 @@
         android:text="Waiting for location..."
         android:textSize="15sp"
         android:textColor="#666666"
-        android:layout_marginBottom="24dp" />
+        android:layout_marginBottom="16dp" />
+
+    <!-- ─── Calibration section ─── -->
 
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:background="#DDDDDD"
-        android:layout_marginBottom="24dp" />
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Coordinate Calibration"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:id="@+id/calibrationStatus"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Not calibrated"
+        android:textSize="14sp"
+        android:textColor="#FF5722"
+        android:layout_marginBottom="12dp" />
+
+    <TextView
+        android:id="@+id/robotPositionText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Robot position: unknown"
+        android:textSize="13sp"
+        android:textColor="#555555"
+        android:layout_marginBottom="4dp" />
+
+    <TextView
+        android:id="@+id/zeeloPositionText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Zeelo location: awaiting..."
+        android:textSize="13sp"
+        android:textColor="#555555"
+        android:layout_marginBottom="12dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:layout_marginBottom="8dp">
+
+        <Button
+            android:id="@+id/btnCaptureA"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="Capture A"
+            android:layout_marginEnd="8dp" />
+
+        <Button
+            android:id="@+id/btnCaptureB"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="Capture B"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+
+    <Button
+        android:id="@+id/btnCalibrate"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Calibrate"
+        android:enabled="false"
+        android:layout_marginBottom="4dp" />
+
+    <Button
+        android:id="@+id/btnResetCalibration"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Reset Calibration"
+        android:textColor="#FF5722"
+        android:layout_marginBottom="16dp" />
+
+    <!-- ─── Location / Repose section ─── -->
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#DDDDDD"
+        android:layout_marginBottom="16dp" />
 
     <TextView
         android:layout_width="wrap_content"
@@ -54,13 +143,22 @@
         android:textSize="15sp"
         android:textColor="#333333"
         android:lineSpacingExtra="4dp"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/mappedPositionText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Mapped temi position: –"
+        android:textSize="14sp"
+        android:textColor="#007AFF"
         android:layout_marginBottom="24dp" />
 
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:background="#DDDDDD"
-        android:layout_marginBottom="24dp" />
+        android:layout_marginBottom="16dp" />
 
     <TextView
         android:id="@+id/reposeStatusText"
@@ -72,3 +170,4 @@
         android:textStyle="bold" />
 
 </LinearLayout>
+</ScrollView>
