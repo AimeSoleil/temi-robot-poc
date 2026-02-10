@@ -11,4 +11,11 @@ object Config {
     const val TOPIC_COMMAND = "temi/command"
     const val TOPIC_STATUS = "temi/status"
     const val TOPIC_LOCATION = "temi/location"
+    const val TOPIC_ZEELO_LOCATION = "temi/zeelo_location"  // Zeelo SDK phone location updates
+    
+    // Zeelo Location SDK settings
+    // The API key is configured in AndroidManifest.xml:
+    // <meta-data android:name="com.cherrypicks.zeelo.sdk.api_key" android:value="YOUR_API_KEY" />
+    const val ZEELO_ENABLE_HK1980 = true
+    const val ZEELO_POLL_INTERVAL_MS = 10_000L  // Auto-poll interval in ms (10s default)
 }

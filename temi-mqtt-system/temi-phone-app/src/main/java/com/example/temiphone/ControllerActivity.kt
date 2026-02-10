@@ -1,6 +1,8 @@
 package com.example.temiphone
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
@@ -11,21 +13,27 @@ class ControllerActivity : AppCompatActivity() {
 
     private lateinit var mqttManager: MqttManager
     private lateinit var locationApiClient: LocationApiClient
+
     private lateinit var connectionStatus: TextView
     private lateinit var statusText: TextView
-    private lateinit var locationSpinner: Spinner
-    private lateinit var btnGoTo: Button
-    private lateinit var btnStop: Button
-    private lateinit var btnRefreshLocations: Button
-    private lateinit var editSpeak: EditText
-    private lateinit var btnSpeak: Button
+    private lateinit var zeeloLocationText: TextView
+    private lateinit var editPollInterval: EditText
+    private lateinit var btnStartPoll: Button
+    private lateinit var btnStopPoll: Button
+    private lateinit var editLatitude: EditText
+    private lateinit var editLongitude: EditText
+    private lateinit var editFloor: EditText
+    private lateinit var btnSendManualLocation: Button
 
     private val gson = Gson()
-    private val locations = mutableListOf<String>()
+    private val pollHandler = Handler(Looper.getMainLooper())
+    private var polling = false
 
     companion object {
         private const val TAG = "ControllerActivity"
     }
+
+    // ──────────────────────────── lifecycle ────────────────────────────
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,53 +42,55 @@ class ControllerActivity : AppCompatActivity() {
         initViews()
         setupMqtt()
         setupButtons()
+        initializeZeeloSDK()
     }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        stopPolling()
+        locationApiClient.stopLocationService()
+        mqttManager.disconnect()
+    }
+
+    // ──────────────────────────── views ────────────────────────────────
 
     private fun initViews() {
         connectionStatus = findViewById(R.id.connectionStatus)
         statusText = findViewById(R.id.statusText)
-        locationSpinner = findViewById(R.id.locationSpinner)
-        btnGoTo = findViewById(R.id.btnGoTo)
-        btnStop = findViewById(R.id.btnStop)
-        btnRefreshLocations = findViewById(R.id.btnRefreshLocations)
-        editSpeak = findViewById(R.id.editSpeak)
-        btnSpeak = findViewById(R.id.btnSpeak)
+        zeeloLocationText = findViewById(R.id.zeeloLocationText)
+        editPollInterval = findViewById(R.id.editPollInterval)
+        btnStartPoll = findViewById(R.id.btnStartPoll)
+        btnStopPoll = findViewById(R.id.btnStopPoll)
+        editLatitude = findViewById(R.id.editLatitude)
+        editLongitude = findViewById(R.id.editLongitude)
+        editFloor = findViewById(R.id.editFloor)
+        btnSendManualLocation = findViewById(R.id.btnSendManualLocation)
     }
+
+    // ──────────────────────────── MQTT ─────────────────────────────────
 
     private fun setupMqtt() {
         mqttManager = MqttManager(this)
-        locationApiClient = LocationApiClient()
 
         mqttManager.setConnectionListener { connected ->
             runOnUiThread {
                 connectionStatus.text = if (connected) "MQTT: Connected" else "MQTT: Disconnected"
-                btnGoTo.isEnabled = connected
-                btnStop.isEnabled = connected
-                btnSpeak.isEnabled = connected
-                btnRefreshLocations.isEnabled = connected
+                connectionStatus.setTextColor(
+                    if (connected) 0xFF4CAF50.toInt() else 0xFFFF5722.toInt()
+                )
             }
         }
 
         mqttManager.setMessageListener { topic, message ->
-            when (topic) {
-                Config.TOPIC_STATUS -> {
-                    runOnUiThread {
-                        try {
-                            val json = gson.fromJson(message, JsonObject::class.java)
-                            val status = json.get("status")?.asString ?: "unknown"
-                            val detail = json.get("detail")?.asString ?: ""
-                            statusText.text = "Status: $status - $detail"
-                        } catch (e: Exception) {
-                            statusText.text = "Status: $message"
-                        }
-                    }
-                }
-                Config.TOPIC_LOCATION -> {
-                    val locs = locationApiClient.parseLocationsFromMqtt(message)
-                    runOnUiThread {
-                        locations.clear()
-                        locations.addAll(locs)
-                        updateLocationSpinner()
+            if (topic == Config.TOPIC_STATUS) {
+                runOnUiThread {
+                    try {
+                        val json = gson.fromJson(message, JsonObject::class.java)
+                        val status = json.get("status")?.asString ?: "unknown"
+                        val detail = json.get("detail")?.asString ?: ""
+                        statusText.text = "Relay: $status – $detail"
+                    } catch (_: Exception) {
+                        statusText.text = "Relay: $message"
                     }
                 }
             }
@@ -89,57 +99,150 @@ class ControllerActivity : AppCompatActivity() {
         mqttManager.connect()
     }
 
+    // ──────────────────────────── Zeelo SDK ────────────────────────────
+
+    private fun initializeZeeloSDK() {
+        locationApiClient = LocationApiClient(this)
+        locationApiClient.initializeZeeloSDK(object : LocationApiClient.LocationCallback {
+            override fun onLocationUpdated(
+                location: zeelo.location.data.Location?,
+                gpsLocation: zeelo.location.data.GPSLocation?,
+                source: zeelo.location.data.LocationSource?
+            ) {
+                // Just update the cached state; the poll timer will publish.
+                runOnUiThread { updateZeeloLocationDisplay() }
+            }
+
+            override fun onError(error: String) {
+                runOnUiThread {
+                    statusText.text = "Zeelo error: $error"
+                    Log.e(TAG, "Zeelo SDK error: $error")
+                }
+            }
+        })
+    }
+
+    private fun updateZeeloLocationDisplay() {
+        val loc = locationApiClient.getCurrentLocation()
+        if (loc == null) {
+            zeeloLocationText.text = "Location: Waiting for Zeelo SDK..."
+            return
+        }
+        zeeloLocationText.text = buildString {
+            append("Lat: ${String.format("%.6f", loc.latitude)}\n")
+            append("Lon: ${String.format("%.6f", loc.longitude)}\n")
+            append("Floor: ${loc.floorLevel}")
+            val gf = loc.geofenceName
+            if (!gf.isNullOrEmpty()) append("  |  Geofence: $gf")
+        }
+    }
+
+    // ──────────────────────────── polling ──────────────────────────────
+
+    private val pollRunnable = object : Runnable {
+        override fun run() {
+            publishZeeloLocation()
+            pollHandler.postDelayed(this, getPollIntervalMs())
+        }
+    }
+
+    private fun startPolling() {
+        if (polling) return
+        polling = true
+        btnStartPoll.isEnabled = false
+        btnStopPoll.isEnabled = true
+        editPollInterval.isEnabled = false
+        statusText.text = "Auto-poll started (every ${getPollIntervalMs() / 1000}s)"
+        // Publish immediately, then repeat
+        publishZeeloLocation()
+        pollHandler.postDelayed(pollRunnable, getPollIntervalMs())
+    }
+
+    private fun stopPolling() {
+        polling = false
+        pollHandler.removeCallbacks(pollRunnable)
+        btnStartPoll.isEnabled = true
+        btnStopPoll.isEnabled = false
+        editPollInterval.isEnabled = true
+        statusText.text = "Auto-poll stopped"
+    }
+
+    private fun getPollIntervalMs(): Long {
+        val seconds = editPollInterval.text.toString().toLongOrNull() ?: 10
+        return (seconds.coerceAtLeast(1)) * 1000
+    }
+
+    // ──────────────────────────── publish ──────────────────────────────
+
+    private fun publishZeeloLocation() {
+        try {
+            val locationJson = locationApiClient.exportCurrentLocationAsJson()
+            val command = JsonObject().apply {
+                addProperty("action", "update_location")
+                add("location_data", gson.fromJson(locationJson, JsonObject::class.java))
+            }
+            mqttManager.publishCommand(command.toString())
+            runOnUiThread {
+                updateZeeloLocationDisplay()
+                statusText.text = "Zeelo location published  (${java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())})"
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error publishing Zeelo location", e)
+            runOnUiThread { statusText.text = "Publish error: ${e.message}" }
+        }
+    }
+
+    private fun publishManualLocation() {
+        val latStr = editLatitude.text.toString().trim()
+        val lonStr = editLongitude.text.toString().trim()
+        val floorStr = editFloor.text.toString().trim()
+
+        if (latStr.isEmpty() || lonStr.isEmpty()) {
+            Toast.makeText(this, "Please enter latitude and longitude", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val lat = latStr.toDoubleOrNull()
+        val lon = lonStr.toDoubleOrNull()
+        if (lat == null || lon == null) {
+            Toast.makeText(this, "Invalid number format", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        try {
+            val locationData = JsonObject().apply {
+                add("location", JsonObject().apply {
+                    addProperty("latitude", lat)
+                    addProperty("longitude", lon)
+                    addProperty("floorLevel", floorStr.toIntOrNull() ?: 0)
+                    addProperty("isOutDoor", false)
+                    addProperty("geofenceName", "")
+                    addProperty("geofenceId", "")
+                    addProperty("floorName", "")
+                    addProperty("coverageArea", false)
+                    addProperty("hkE", 0.0)
+                    addProperty("hkN", 0.0)
+                })
+                addProperty("locationSource", "Manual")
+                addProperty("timestamp", System.currentTimeMillis())
+            }
+            val command = JsonObject().apply {
+                addProperty("action", "update_location")
+                add("location_data", locationData)
+            }
+            mqttManager.publishCommand(command.toString())
+            statusText.text = "Manual location sent  (lat=$latStr, lon=$lonStr, floor=${floorStr.ifEmpty { "0" }})"
+        } catch (e: Exception) {
+            Log.e(TAG, "Error publishing manual location", e)
+            statusText.text = "Send error: ${e.message}"
+        }
+    }
+
+    // ──────────────────────────── buttons ──────────────────────────────
+
     private fun setupButtons() {
-        btnGoTo.setOnClickListener {
-            val selectedLocation = locationSpinner.selectedItem?.toString()
-            if (selectedLocation != null) {
-                val command = JsonObject().apply {
-                    addProperty("action", "goto")
-                    addProperty("location", selectedLocation)
-                }
-                mqttManager.publishCommand(command.toString())
-                statusText.text = "Sent: Go to $selectedLocation"
-            }
-        }
-
-        btnStop.setOnClickListener {
-            val command = JsonObject().apply {
-                addProperty("action", "stop")
-            }
-            mqttManager.publishCommand(command.toString())
-            statusText.text = "Sent: Stop"
-        }
-
-        btnRefreshLocations.setOnClickListener {
-            val command = JsonObject().apply {
-                addProperty("action", "get_locations")
-            }
-            mqttManager.publishCommand(command.toString())
-            statusText.text = "Requesting locations..."
-        }
-
-        btnSpeak.setOnClickListener {
-            val text = editSpeak.text.toString().trim()
-            if (text.isNotEmpty()) {
-                val command = JsonObject().apply {
-                    addProperty("action", "speak")
-                    addProperty("text", text)
-                }
-                mqttManager.publishCommand(command.toString())
-                statusText.text = "Sent: Speak '$text'"
-                editSpeak.text.clear()
-            }
-        }
-    }
-
-    private fun updateLocationSpinner() {
-        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, locations)
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        locationSpinner.adapter = adapter
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        mqttManager.disconnect()
+        btnStartPoll.setOnClickListener { startPolling() }
+        btnStopPoll.setOnClickListener { stopPolling() }
+        btnSendManualLocation.setOnClickListener { publishManualLocation() }
     }
 }

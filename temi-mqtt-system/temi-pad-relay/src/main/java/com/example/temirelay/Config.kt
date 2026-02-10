@@ -10,5 +10,4 @@ object Config {
     // MQTT topics
     const val TOPIC_COMMAND = "temi/command"
     const val TOPIC_STATUS = "temi/status"
-    const val TOPIC_LOCATION = "temi/location"
 }

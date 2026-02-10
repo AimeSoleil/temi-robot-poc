@@ -79,15 +79,13 @@ class MqttManager(private val context: Context) {
 
     private fun subscribeToTopics() {
         try {
-            val topics = arrayOf(Config.TOPIC_STATUS, Config.TOPIC_LOCATION)
-            val qos = intArrayOf(1, 1)
-            mqttClient?.subscribe(topics, qos, null, object : IMqttActionListener {
+            mqttClient?.subscribe(Config.TOPIC_STATUS, 1, null, object : IMqttActionListener {
                 override fun onSuccess(asyncActionToken: IMqttToken?) {
-                    Log.d(TAG, "Subscribed to status and location topics")
+                    Log.d(TAG, "Subscribed to ${Config.TOPIC_STATUS}")
                 }
 
                 override fun onFailure(asyncActionToken: IMqttToken?, exception: Throwable?) {
-                    Log.e(TAG, "Failed to subscribe", exception)
+                    Log.e(TAG, "Failed to subscribe to ${Config.TOPIC_STATUS}", exception)
                 }
             })
         } catch (e: Exception) {

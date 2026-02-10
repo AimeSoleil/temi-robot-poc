@@ -1,53 +1,136 @@
 # temi-robot-poc
 
-A proof-of-concept system for remotely controlling a temi robot via MQTT. The system consists of three components:
+A proof-of-concept system that uses **Zeelo indoor location SDK** on a phone to continuously track position, and relays the location to a **temi robot** via MQTT so the robot can **repose** (relocate itself on its map).
+
+## Architecture
+
+```
+┌─────────────────────┐       MQTT (temi/command)       ┌──────────────────────┐
+│   Phone App         │ ──────────────────────────────→  │   Temi Pad Relay     │
+│                     │                                  │                      │
+│  Zeelo Location SDK │                                  │  robot.repose(pos)   │
+│  (indoor positioning│       MQTT (temi/status)         │                      │
+│   or manual input)  │ ←──────────────────────────────  │  OnReposeStatus      │
+└─────────────────────┘                                  └──────────────────────┘
+         │                                                        │
+         │  Zeelo SDK polls                              temi SDK repose()
+         │  every N seconds                              relocates the robot
+         ▼                                               on its internal map
+   ┌───────────┐                                                  │
+   │ Zeelo CMS │                                                  ▼
+   │ (cloud)   │                                          ┌──────────────┐
+   └───────────┘                                          │  temi Robot  │
+                                                          └──────────────┘
+```
+
+## Data Flow
+
+```
+1. Phone App  ─── Zeelo SDK callback or manual input ───→  lat, lon, floor
+                         │
+2.                       ▼
+               Build JSON command:
+               {
+                 "action": "update_location",
+                 "location_data": {
+                   "location": { "latitude": 22.25, "longitude": 113.56, "floorLevel": 7, ... },
+                   "locationSource": "LocationEngine" | "Manual",
+                   "timestamp": 1707560000000
+                 }
+               }
+                         │
+3.                       ▼
+               Publish to MQTT topic: temi/command
+                         │
+4. Relay App  ←── subscribes to temi/command ────────────  receives JSON
+                         │
+5.                       ▼
+               Parse lat/lon → Position(x, y, yaw)
+               Call  robot.repose(position)
+                         │
+6.                       ▼
+               OnReposeStatusChanged callback:
+               IDLE → START → GOING → COMPLETE ✓
+                         │
+7.                       ▼
+               Publish status to MQTT topic: temi/status
+               { "status": "repose_4", "detail": "Repose Complete" }
+                         │
+8. Phone App  ←── subscribes to temi/status ─────────────  displays result
+```
+
+## MQTT Topics
+
+| Topic | Direction | Payload | Description |
+|-------|-----------|---------|-------------|
+| `temi/command` | Phone → Relay | `{ "action": "update_location", "location_data": { ... } }` | Location update that triggers `robot.repose()` |
+| `temi/status` | Relay → Phone | `{ "status": "...", "detail": "...", "timestamp": ... }` | Repose status / errors feedback |
 
 ## Project Structure
 
 ```
 temi-mqtt-system/
-├── temi-phone-app/          ← Android app for your phone (controller)
+├── temi-phone-app/              ← Android app (phone) — Zeelo location sender
 │   ├── build.gradle
-│   ├── src/main/
-│   │   ├── AndroidManifest.xml
-│   │   ├── java/com/example/temiphone/
-│   │   │   ├── ControllerActivity.kt
-│   │   │   ├── LocationApiClient.kt
-│   │   │   ├── MqttManager.kt
-│   │   │   └── Config.kt
-│   │   └── res/layout/activity_controller.xml
+│   ├── zeelolitesdk.gradle      ← Zeelo SDK dependency config
+│   ├── proguard-rules.pro
+│   ├── libs/
+│   │   └── zeelo_location_prod_2.2.0.aar
+│   └── src/main/
+│       ├── AndroidManifest.xml  ← permissions + Zeelo API key
+│       ├── java/com/example/temiphone/
+│       │   ├── ControllerActivity.kt   ← UI: auto-poll + manual input
+│       │   ├── LocationApiClient.kt    ← Zeelo SDK wrapper
+│       │   ├── MqttManager.kt         ← MQTT publish/subscribe
+│       │   └── Config.kt              ← broker URL, topics, poll interval
+│       └── res/layout/activity_controller.xml
 │
-├── temi-pad-relay/          ← Android app for the temi pad (relay)
+├── temi-pad-relay/              ← Android app (temi pad) — repose relay
 │   ├── build.gradle
-│   ├── src/main/
-│   │   ├── AndroidManifest.xml
-│   │   ├── java/com/example/temirelay/
-│   │   │   ├── RelayActivity.kt
-│   │   │   ├── MqttRelayManager.kt
-│   │   │   └── Config.kt
-│   │   └── res/layout/activity_relay.xml
+│   └── src/main/
+│       ├── AndroidManifest.xml
+│       ├── java/com/example/temirelay/
+│       │   ├── RelayActivity.kt       ← listens for location → calls repose()
+│       │   ├── MqttRelayManager.kt    ← MQTT client
+│       │   └── Config.kt             ← broker URL, topics
+│       └── res/layout/activity_relay.xml
 │
-└── mosquitto/               ← MQTT broker config
+└── mosquitto/                   ← MQTT broker (Docker)
     ├── docker-compose.yml
     ├── mosquitto.conf
     ├── setup.sh
     └── password.txt
 ```
 
-## Prerequisites
+## Phone App — Features
 
-Before installing any sub-system, ensure you have the following:
+The phone app has **two modes** for sending location data to the relay:
+
+| Mode | How it works |
+|------|-------------|
+| **Auto-Poll (Zeelo SDK)** | Zeelo SDK tracks indoor position continuously. A configurable timer (default 10 s) reads the latest cached location and publishes it to MQTT. |
+| **Manual Input** | User enters latitude, longitude, and floor level manually and taps "Send". |
+
+## Relay App — Features
+
+The relay app is minimal:
+
+1. Subscribes to `temi/command`
+2. On receiving `update_location` → parses `lat`, `lon` → calls `robot.repose(Position(lat, lon, 0))`
+3. Listens to `OnReposeStatusChangedListener` and publishes repose status back to `temi/status`
+
+## Prerequisites
 
 | Dependency | Version | Required For |
 |------------|---------|--------------|
 | [Docker](https://docs.docker.com/get-docker/) | 20.10+ | MQTT Broker |
 | [Docker Compose](https://docs.docker.com/compose/install/) | v2+ | MQTT Broker |
-| [Android Studio](https://developer.android.com/studio) | Hedgehog (2023.1.1) or later | Phone App, Pad Relay App |
-| [JDK](https://developer.android.com/build/jdks) | 8+ | Phone App, Pad Relay App |
-| Android SDK | API level 34 (compileSdk) | Phone App, Pad Relay App |
-| Kotlin plugin | Bundled with Android Studio | Phone App, Pad Relay App |
-| A temi robot | — | Pad Relay App |
-| An Android phone or emulator | Android 7.0+ (API 24) | Phone App |
+| [Android Studio](https://developer.android.com/studio) | Hedgehog+ | Both apps |
+| JDK | 8+ | Both apps |
+| Android SDK | API 34 (compileSdk) | Both apps |
+| A temi robot | — | Relay app |
+| An Android phone | Android 7.0+ (API 24) | Phone app |
+| Zeelo API Key | — | Phone app (obtain from Zeelo) |
 
 ## Installation
 
@@ -98,114 +181,105 @@ The broker listens on port **1883** (MQTT) and **9001** (WebSocket).
 
 ---
 
-### 2. Temi Phone App (Controller)
+### 2. Temi Phone App (Location Sender)
 
-Android app that runs on your phone. Provides a UI to:
-- Navigate the robot to saved locations
-- Make the robot speak
-- Stop robot movement
-- View robot status in real time
+Android app that runs on your phone. Sends Zeelo indoor location (or manual coordinates) to the relay via MQTT.
 
-#### Dependencies
+#### Key Dependencies
 
-| Library | Version | Purpose |
-|---------|---------|---------|
-| `androidx.core:core-ktx` | 1.12.0 | Kotlin Android extensions |
-| `androidx.appcompat:appcompat` | 1.6.1 | Backward-compatible UI components |
-| `com.google.android.material:material` | 1.11.0 | Material Design components |
-| `org.eclipse.paho:org.eclipse.paho.client.mqttv3` | 1.2.5 | MQTT client |
-| `org.eclipse.paho:org.eclipse.paho.android.service` | 1.1.1 | MQTT Android service |
-| `com.google.code.gson:gson` | 2.10.1 | JSON parsing |
-| `com.squareup.okhttp3:okhttp` | 4.12.0 | HTTP client |
-
-All dependencies are managed via Gradle and will be downloaded automatically.
+| Library | Purpose |
+|---------|---------|
+| `zeelo_location_prod_2.2.0.aar` | Zeelo indoor location SDK |
+| `org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5` | MQTT client |
+| `com.google.code.gson:gson:2.10.1` | JSON serialization |
+| `org.greenrobot:eventbus:3.3.1` | Required by Zeelo SDK |
 
 #### Steps
 
-1. **Open the project in Android Studio:**
-   - Launch Android Studio.
-   - Select **File → Open** and navigate to `temi-mqtt-system/temi-phone-app`.
+1. Open `temi-mqtt-system/temi-phone-app` in Android Studio.
 
-2. **Configure the MQTT broker address:**
-   - Open `src/main/java/com/example/temiphone/Config.kt`.
-   - Update `MQTT_BROKER_URL` with your server's IP address:
-     ```kotlin
-     const val MQTT_BROKER_URL = "tcp://YOUR_SERVER_IP:1883"
-     ```
+2. Set your MQTT broker IP in `Config.kt`:
+   ```kotlin
+   const val MQTT_BROKER_URL = "tcp://YOUR_SERVER_IP:1883"
+   ```
 
-3. **Sync Gradle and build:**
-   - Click **Sync Now** when prompted, or go to **File → Sync Project with Gradle Files**.
-   - Wait for all dependencies to download.
+3. Set your Zeelo API key in `AndroidManifest.xml`:
+   ```xml
+   <meta-data
+       android:name="com.cherrypicks.zeelo.sdk.api_key"
+       android:value="YOUR_ZEELO_API_KEY" />
+   ```
 
-4. **Run on your phone or emulator:**
-   - Connect your Android phone via USB (enable USB debugging) or start an emulator.
-   - Click the **Run ▶** button in Android Studio.
-   - The app requires a minimum SDK of **API 24 (Android 7.0)**.
+4. Sync Gradle, then run on your phone.
+
+> **Note:** The Zeelo SDK requires a device with **gyroscope** and **magnetometer** sensors. Wait ~5 seconds after startup for accurate positioning.
 
 ---
 
 ### 3. Temi Pad Relay App
 
 Android app that runs on the temi robot's pad. It:
-- Listens for MQTT commands from the phone app
-- Executes commands on the temi robot via the temi SDK
-- Reports status back via MQTT
+- Listens for `update_location` messages via MQTT
+- Calls `robot.repose(Position)` to relocate the robot on its map
+- Reports repose status back to the phone via MQTT
 
-#### Dependencies
+#### Key Dependencies
 
-| Library | Version | Purpose |
-|---------|---------|---------|
-| `androidx.core:core-ktx` | 1.12.0 | Kotlin Android extensions |
-| `androidx.appcompat:appcompat` | 1.6.1 | Backward-compatible UI components |
-| `com.google.android.material:material` | 1.11.0 | Material Design components |
-| `org.eclipse.paho:org.eclipse.paho.client.mqttv3` | 1.2.5 | MQTT client |
-| `org.eclipse.paho:org.eclipse.paho.android.service` | 1.1.1 | MQTT Android service |
-| `com.robotemi:sdk` | 0.10.77 | temi robot SDK |
-| `com.google.code.gson:gson` | 2.10.1 | JSON parsing |
-
-All dependencies are managed via Gradle and will be downloaded automatically.
+| Library | Purpose |
+|---------|---------|
+| `com.robotemi:sdk:0.10.77` | temi robot SDK |
+| `org.eclipse.paho:org.eclipse.paho.client.mqttv3:1.2.5` | MQTT client |
+| `com.google.code.gson:gson:2.10.1` | JSON parsing |
 
 #### Steps
 
-1. **Open the project in Android Studio:**
-   - Launch Android Studio.
-   - Select **File → Open** and navigate to `temi-mqtt-system/temi-pad-relay`.
+1. Open `temi-mqtt-system/temi-pad-relay` in Android Studio.
 
-2. **Configure the MQTT broker address:**
-   - Open `src/main/java/com/example/temirelay/Config.kt`.
-   - Update `MQTT_BROKER_URL` with your server's IP address:
-     ```kotlin
-     const val MQTT_BROKER_URL = "tcp://YOUR_SERVER_IP:1883"
-     ```
+2. Set your MQTT broker IP in `Config.kt`:
+   ```kotlin
+   const val MQTT_BROKER_URL = "tcp://YOUR_SERVER_IP:1883"
+   ```
 
-3. **Sync Gradle and build:**
-   - Click **Sync Now** when prompted, or go to **File → Sync Project with Gradle Files**.
-   - Wait for all dependencies to download.
+3. Sync Gradle, then deploy to the temi robot's pad via USB or wireless ADB.
 
-4. **Deploy to the temi robot:**
-   - Connect the temi robot's pad to your computer via USB, or use wireless ADB.
-   - Click the **Run ▶** button in Android Studio.
-   - The app requires a minimum SDK of **API 24 (Android 7.0)**.
-
-> **Note:** The temi pad relay app uses [temi SDK](https://github.com/robotemi/sdk) `0.10.77` and must be installed directly on the temi robot's tablet to access the robot's hardware features.
+> **Note:** The relay app uses [temi SDK](https://github.com/robotemi/sdk) `0.10.77` and must run on the temi robot's tablet. The `repose()` method requires Launcher v134+.
 
 ---
 
 ## Configuration
 
-Update `Config.kt` in both apps with your MQTT broker IP address:
+Update `Config.kt` in **both** apps with your MQTT broker IP:
 ```kotlin
 const val MQTT_BROKER_URL = "tcp://YOUR_SERVER_IP:1883"
 ```
 
-Both apps use the following default MQTT credentials (set in the broker's `setup.sh`):
+Default MQTT credentials (set in `mosquitto/setup.sh`):
 - **Username:** `temi`
 - **Password:** `temi2026`
 
-## MQTT Topics
+### Phone App Config (`temi-phone-app/Config.kt`)
 
-| Topic | Direction | Description |
-|-------|-----------|-------------|
-| `temi/command` | Phone → Pad | Robot commands (goto, speak, stop, get_locations) |
-| `temi/status` | Pad → Phone | Robot status updates |
-| `temi/location` | Pad → Phone | Available locations list |
+| Constant | Default | Description |
+|----------|---------|-------------|
+| `MQTT_BROKER_URL` | `tcp://YOUR_SERVER_IP:1883` | Broker address |
+| `MQTT_CLIENT_ID` | `temi-phone-controller` | MQTT client ID |
+| `TOPIC_COMMAND` | `temi/command` | Topic for sending location to relay |
+| `TOPIC_STATUS` | `temi/status` | Topic for receiving repose status |
+| `ZEELO_ENABLE_HK1980` | `true` | Enable Hong Kong 1980 grid coordinates |
+| `ZEELO_POLL_INTERVAL_MS` | `10000` | Auto-poll interval (milliseconds) |
+
+### Relay App Config (`temi-pad-relay/Config.kt`)
+
+| Constant | Default | Description |
+|----------|---------|-------------|
+| `MQTT_BROKER_URL` | `tcp://YOUR_SERVER_IP:1883` | Broker address |
+| `MQTT_CLIENT_ID` | `temi-pad-relay` | MQTT client ID |
+| `TOPIC_COMMAND` | `temi/command` | Topic for receiving location updates |
+| `TOPIC_STATUS` | `temi/status` | Topic for publishing repose status |
+
+## Important Notes
+
+- **Coordinate mapping:** The relay currently passes Zeelo lat/lon directly as `Position(x=lat, y=lon, yaw=0)` to `robot.repose()`. If your temi robot's map uses a different coordinate system, you will need to add a mapping/transformation layer.
+- **Zeelo API key:** Must be obtained from Zeelo and set in `AndroidManifest.xml` before the phone app can get indoor positioning.
+- **Device sensors:** Zeelo SDK requires gyroscope + magnetometer; not all budget phones have these.
+- **Network:** Both apps and the MQTT broker must be reachable on the same network.

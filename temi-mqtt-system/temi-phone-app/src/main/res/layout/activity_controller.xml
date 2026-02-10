@@ -12,7 +12,7 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Temi Controller"
+            android:text="Zeelo Location"
             android:textSize="28sp"
             android:textStyle="bold"
             android:layout_marginBottom="8dp" />
@@ -26,43 +26,46 @@
             android:textColor="#FF5722"
             android:layout_marginBottom="16dp" />
 
-        <TextView
-            android:id="@+id/statusText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Status: Idle"
-            android:textSize="14sp"
-            android:textColor="#666666"
-            android:layout_marginBottom="24dp" />
-
-        <!-- Navigation Section -->
+        <!-- Zeelo Auto-Poll Section -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Navigation"
+            android:text="Auto-Poll (Zeelo SDK)"
             android:textSize="20sp"
             android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/zeeloLocationText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Location: Waiting for Zeelo SDK..."
+            android:textSize="14sp"
+            android:textColor="#333333"
+            android:lineSpacingExtra="4dp"
             android:layout_marginBottom="8dp" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
+            android:gravity="center_vertical"
             android:layout_marginBottom="8dp">
 
-            <Spinner
-                android:id="@+id/locationSpinner"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1" />
-
-            <Button
-                android:id="@+id/btnRefreshLocations"
+            <TextView
                 android:layout_width="wrap_content"
-                android:layout_height="48dp"
-                android:text="Refresh"
-                android:enabled="false"
-                android:layout_marginStart="8dp" />
+                android:layout_height="wrap_content"
+                android:text="Interval (sec):"
+                android:textSize="14sp"
+                android:layout_marginEnd="8dp" />
+
+            <EditText
+                android:id="@+id/editPollInterval"
+                android:layout_width="80dp"
+                android:layout_height="wrap_content"
+                android:inputType="number"
+                android:text="10"
+                android:gravity="center" />
         </LinearLayout>
 
         <LinearLayout
@@ -72,15 +75,14 @@
             android:layout_marginBottom="24dp">
 
             <Button
-                android:id="@+id/btnGoTo"
+                android:id="@+id/btnStartPoll"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Go To"
-                android:enabled="false" />
+                android:text="Start Auto-Poll" />
 
             <Button
-                android:id="@+id/btnStop"
+                android:id="@+id/btnStopPoll"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -90,29 +92,67 @@
                 android:layout_marginStart="8dp" />
         </LinearLayout>
 
-        <!-- Speech Section -->
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#CCCCCC"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Manual Location Input Section -->
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Speech"
+            android:text="Manual Location"
             android:textSize="20sp"
             android:textStyle="bold"
             android:layout_marginBottom="8dp" />
 
         <EditText
-            android:id="@+id/editSpeak"
+            android:id="@+id/editLatitude"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Enter text for temi to speak"
-            android:inputType="text"
+            android:hint="Latitude (e.g. 22.250763)"
+            android:inputType="numberDecimal|numberSigned"
+            android:layout_marginBottom="8dp" />
+
+        <EditText
+            android:id="@+id/editLongitude"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Longitude (e.g. 113.565228)"
+            android:inputType="numberDecimal|numberSigned"
+            android:layout_marginBottom="8dp" />
+
+        <EditText
+            android:id="@+id/editFloor"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Floor level (e.g. 0)"
+            android:inputType="numberSigned"
             android:layout_marginBottom="8dp" />
 
         <Button
-            android:id="@+id/btnSpeak"
+            android:id="@+id/btnSendManualLocation"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Speak"
-            android:enabled="false" />
+            android:text="Send Manual Location" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="#CCCCCC"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="16dp" />
+
+        <!-- Status / Log -->
+        <TextView
+            android:id="@+id/statusText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Status: Idle"
+            android:textSize="13sp"
+            android:textColor="#999999"
+            android:lineSpacingExtra="2dp" />
 
     </LinearLayout>
 </ScrollView>

@@ -3,6 +3,8 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+apply from: "zeelolitesdk.gradle"
+
 android {
     namespace 'com.example.temiphone'
     compileSdk 34
@@ -30,6 +32,12 @@ android {
     kotlinOptions {
         jvmTarget = '1.8'
     }
+    
+    repositories {
+        flatDir {
+            dirs 'libs'
+        }
+    }
 }
 
 dependencies {
@@ -40,4 +48,11 @@ dependencies {
     implementation 'org.eclipse.paho:org.eclipse.paho.android.service:1.1.1'
     implementation 'com.google.code.gson:gson:2.10.1'
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    
+    // Zeelo Location SDK
+    implementation files('libs/zeelo_location_prod_2.2.0.aar')
+    
+    // Zeelo SDK dependencies
+    implementation 'org.greenrobot:eventbus:3.3.1'
+    implementation 'androidx.constraintlayout:constraintlayout:2.0.1'
 }

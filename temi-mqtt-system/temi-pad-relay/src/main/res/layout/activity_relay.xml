@@ -4,31 +4,71 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:gravity="center"
-    android:padding="24dp">
+    android:padding="32dp">
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Temi Pad Relay"
+        android:text="Temi Relay"
         android:textSize="28sp"
         android:textStyle="bold"
-        android:layout_marginBottom="16dp" />
+        android:layout_marginBottom="12dp" />
 
     <TextView
         android:id="@+id/connectionStatus"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="MQTT: Disconnected"
-        android:textSize="18sp"
+        android:textSize="16sp"
         android:textColor="#FF5722"
-        android:layout_marginBottom="24dp" />
+        android:layout_marginBottom="16dp" />
 
     <TextView
         android:id="@+id/statusText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Waiting for commands..."
+        android:text="Waiting for location..."
+        android:textSize="15sp"
+        android:textColor="#666666"
+        android:layout_marginBottom="24dp" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#DDDDDD"
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Latest Location"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+
+    <TextView
+        android:id="@+id/locationText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Awaiting data from phone..."
+        android:textSize="15sp"
+        android:textColor="#333333"
+        android:lineSpacingExtra="4dp"
+        android:layout_marginBottom="24dp" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#DDDDDD"
+        android:layout_marginBottom="24dp" />
+
+    <TextView
+        android:id="@+id/reposeStatusText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Repose: Idle"
         android:textSize="16sp"
-        android:textColor="#666666" />
+        android:textColor="#007AFF"
+        android:textStyle="bold" />
 
 </LinearLayout>
