@@ -6,6 +6,12 @@ import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
+import android.view.WindowManager
 
 class ControllerActivity : AppCompatActivity() {
 
@@ -45,12 +51,35 @@ class ControllerActivity : AppCompatActivity() {
         setupMqtt()
         setupButtons()
         initializeZeeloSDK()
+
+        // ── Keep-alive: foreground service + battery exemption ──
+        MqttForegroundService.start(this)
+        requestBatteryOptimizationExemption()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         locationApiClient.stopLocationService()
         mqttManager.disconnect()
+        MqttForegroundService.stop(this)
+    }
+
+    // ──────────────────────────── battery optimization ─────────────────
+
+    private fun requestBatteryOptimizationExemption() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                try {
+                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Cannot request battery optimization exemption", e)
+                }
+            }
+        }
     }
 
     // ──────────────────────────── views ────────────────────────────────

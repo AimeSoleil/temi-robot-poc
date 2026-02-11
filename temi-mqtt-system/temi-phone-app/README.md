@@ -147,11 +147,50 @@ This file is included in the repository and referenced by `build.gradle`.
 |------------|---------|
 | `INTERNET` | MQTT network access |
 | `ACCESS_NETWORK_STATE` | Network status detection |
-| `WAKE_LOCK` | Keep MQTT service alive |
+| `WAKE_LOCK` | Keep CPU awake while screen is off |
+| `FOREGROUND_SERVICE` | Run persistent foreground service |
+| `FOREGROUND_SERVICE_LOCATION` | Foreground service type for location tracking |
+| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Prompt user to exempt app from Doze |
+| `POST_NOTIFICATIONS` | Required on Android 13+ to show foreground service notification |
 | `ACCESS_FINE_LOCATION` | GPS access (Zeelo SDK) |
 | `ACCESS_COARSE_LOCATION` | Approximate location (Zeelo SDK) |
 | `ACCESS_BACKGROUND_LOCATION` | Background location updates |
 | `CHANGE_NETWORK_STATE` | Network switching (Zeelo SDK) |
+
+## Background / Keep-Alive
+
+The app uses multiple mechanisms to stay alive when the screen is locked or the phone is idle:
+
+### Foreground Service
+
+`MqttForegroundService` runs as a persistent foreground service with a low-priority notification. This prevents Android from killing the process during Doze mode or when memory is low. The service uses `START_STICKY` so the system will restart it if it is ever stopped.
+
+### Partial Wake Lock
+
+A `PARTIAL_WAKE_LOCK` is acquired inside the foreground service to keep the CPU running while the screen is off. This ensures MQTT messages continue to be sent and received.
+
+### Battery Optimization Exemption
+
+On first launch, the app automatically prompts the user to disable battery optimization (Doze) for this app. This prevents Android from throttling network access during idle periods.
+
+### Additional Device-Specific Steps
+
+Some Android manufacturers (Xiaomi, Huawei, OPPO, Samsung, etc.) have aggressive power management that can kill apps even with the above protections. You may need to manually configure:
+
+| Setting | Where to Find | Action |
+|---------|---------------|--------|
+| **Battery Optimization** | Settings → Battery → Battery Optimization → Find "Temi Controller" | Select **"Don't optimize"** |
+| **Auto-start / Self-launch** | Settings → Apps → Manage Apps → Temi Controller → Auto-start | **Enable** |
+| **Background Activity** | Settings → Apps → Temi Controller → Battery → Background activity | **Allow** |
+| **Lock in Recent Tasks** | Open multitask view → swipe down on the app card (or tap lock icon) | **Lock** the app so it survives "clear all" |
+| **Adaptive Battery** | Settings → Battery → Adaptive Battery | Consider **disabling** or adding app to exceptions |
+| **Data Saver** | Settings → Network → Data Saver | Add app to **Unrestricted** list |
+
+> **Xiaomi (MIUI):** Settings → Apps → Manage Apps → Temi Controller → Battery saver → "No restrictions". Also enable Auto-start.
+>
+> **Huawei (EMUI):** Settings → Battery → App launch → Find app → Set to "Manage manually" → Enable all three toggles.
+>
+> **Samsung (One UI):** Settings → Battery → Background usage limits → Never sleeping apps → Add app.
 
 ## File Structure
 
@@ -163,12 +202,13 @@ temi-phone-app/
 ├── libs/
 │   └── zeelo_location_prod_2.2.0.aar   ← Zeelo Location SDK binary
 └── src/main/
-    ├── AndroidManifest.xml     ← Permissions + Zeelo API key + MqttService
+    ├── AndroidManifest.xml     ← Permissions + Zeelo API key + MqttService + ForegroundService
     └── java/com/example/temiphone/
-        ├── ControllerActivity.kt   ← Main UI: auto-poll, manual input, status display
-        ├── LocationApiClient.kt    ← Zeelo SDK wrapper, source resolution, JSON export
-        ├── MqttManager.kt         ← MQTT client (publish commands, subscribe status)
-        └── Config.kt              ← Constants: broker URL, topics, poll interval
+        ├── ControllerActivity.kt      ← Main UI: auto-poll, manual input, status display
+        ├── LocationApiClient.kt       ← Zeelo SDK wrapper, source resolution, JSON export
+        ├── MqttManager.kt            ← MQTT client (publish commands, subscribe status)
+        ├── MqttForegroundService.kt   ← Foreground service with WakeLock for keep-alive
+        └── Config.kt                 ← Constants: broker URL, topics, poll interval
 ```
 
 ## Source Files
@@ -183,6 +223,17 @@ Main activity and UI controller.
 - **`publishManualLocation()`** — Reads manual input fields, builds JSON with `locationSource: "Manual"`, publishes
 - **`updateZeeloLocationDisplay()`** — Shows the active source label and resolved coordinates in the UI
 - **`setupMqtt()`** — Initializes `MqttManager`, listens for `temi/status` responses
+- **`requestBatteryOptimizationExemption()`** — Prompts user to exempt app from Doze battery optimization
+
+### MqttForegroundService.kt
+
+Persistent foreground service for keep-alive.
+
+- **`start(context)` / `stop(context)`** — Static helpers to start/stop the service
+- **`acquireWakeLock()`** — Acquires `PARTIAL_WAKE_LOCK` to keep CPU running while screen is off
+- **`buildNotification(text)`** — Creates low-priority persistent notification
+- **`updateNotification(text)`** — Updates notification text at runtime
+- Uses `START_STICKY` to auto-restart if killed by the system
 
 ### LocationApiClient.kt
 
@@ -308,6 +359,8 @@ This adds `hkE` (Easting) and `hkN` (Northing) in metres to both `Location` and 
 | Build error: AAR not found | Verify `libs/zeelo_location_prod_2.2.0.aar` exists. Sync Gradle. |
 | Missing EventBus class | Ensure `org.greenrobot:eventbus:3.3.1` is in `build.gradle` dependencies. |
 | GPS permission denied | Grant location permissions in Android Settings → Apps → Temi Controller → Permissions. |
+| App killed when screen locked | Ensure foreground service is running (persistent notification visible). Disable battery optimization. See [Background / Keep-Alive](#background--keep-alive). |
+| No notification on Android 13+ | Grant notification permission when prompted, or enable manually in Settings → Apps → Temi Controller → Notifications. |
 
 ## Related
 

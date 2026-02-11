@@ -12,6 +12,12 @@ import com.robotemi.sdk.Position
 import com.robotemi.sdk.Robot
 import com.robotemi.sdk.listeners.OnReposeStatusChangedListener
 import com.robotemi.sdk.listeners.OnRobotReadyListener
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
+import android.view.WindowManager
 
 class RelayActivity : AppCompatActivity(),
     OnRobotReadyListener,
@@ -65,6 +71,11 @@ class RelayActivity : AppCompatActivity(),
         setupCalibrationButtons()
         setupMqtt()
         refreshCalibrationUI()
+
+        // ── Keep-alive: keep screen on, foreground service, battery exemption ──
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        MqttForegroundService.start(this)
+        requestBatteryOptimizationExemption()
     }
 
     override fun onStart() {
@@ -82,6 +93,25 @@ class RelayActivity : AppCompatActivity(),
     override fun onDestroy() {
         super.onDestroy()
         mqttManager.disconnect()
+        MqttForegroundService.stop(this)
+    }
+
+    // ──────────────────────────── battery optimization ─────────────────
+
+    private fun requestBatteryOptimizationExemption() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val pm = getSystemService(POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                try {
+                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                        data = Uri.parse("package:$packageName")
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Cannot request battery optimization exemption", e)
+                }
+            }
+        }
     }
 
     // ──────────────────────────── views ────────────────────────────────

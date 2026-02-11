@@ -146,18 +146,65 @@ Replace `YOUR_SERVER_IP` with the IP of the machine running Mosquitto.
 | `USE_HK1980_MAPPING` | `true` | Use HK1980 coordinates + affine transform (requires calibration) |
 | `DEFAULT_YAW` | `0f` | Fallback yaw (degrees) when direction is unavailable |
 
+## Background / Keep-Alive
+
+The relay app uses multiple mechanisms to stay alive on the temi tablet:
+
+### Kiosk Mode
+
+The app declares `com.robotemi.sdk.metadata.KIOSK = TRUE` in AndroidManifest.xml. Temi treats kiosk apps as the primary foreground app and will not allow the user to navigate away.
+
+### Keep Screen On
+
+`FLAG_KEEP_SCREEN_ON` is set on the Activity window so the temi tablet screen never turns off automatically.
+
+### Foreground Service
+
+`MqttForegroundService` runs as a persistent foreground service with a low-priority notification. This prevents Android from killing the MQTT connection. Uses `START_STICKY` for automatic restart.
+
+### Partial Wake Lock
+
+A `PARTIAL_WAKE_LOCK` inside the foreground service keeps the CPU running even if the screen is somehow turned off.
+
+### Battery Optimization Exemption
+
+On first launch, the app prompts to disable Doze battery optimization, preventing network throttling during idle.
+
+### AndroidManifest.xml — Permissions
+
+| Permission | Purpose |
+|------------|----------|
+| `INTERNET` | MQTT network access |
+| `ACCESS_NETWORK_STATE` | Network status detection |
+| `WAKE_LOCK` | Keep CPU awake while screen is off |
+| `FOREGROUND_SERVICE` | Run persistent foreground service |
+| `FOREGROUND_SERVICE_SPECIAL_USE` | Foreground service type for MQTT relay |
+| `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS` | Prompt user to exempt app from Doze |
+| `POST_NOTIFICATIONS` | Required on Android 13+ for foreground service notification |
+
+### Additional Device-Specific Steps
+
+While the temi tablet is typically less aggressive than phone OEMs, the following may still be relevant:
+
+| Setting | Action |
+|---------|--------|
+| **Battery Optimization** | Settings → Battery → Exempt "Temi Relay" from optimization |
+| **Lock in Recent Tasks** | In multitask view, lock the app card to prevent "clear all" from killing it |
+| **temi Settings** | Ensure the app is set as the active kiosk app in temi's Settings → Apps |
+
 ## File Structure
 
 ```
 temi-pad-relay/
 ├── build.gradle                ← Dependencies: temi SDK, Paho MQTT, Gson
 └── src/main/
-    ├── AndroidManifest.xml     ← Permissions, MqttService, KIOSK meta-data
+    ├── AndroidManifest.xml     ← Permissions, MqttService, ForegroundService, KIOSK meta-data
     └── java/com/example/temirelay/
-        ├── RelayActivity.kt       ← Main UI: command handler, calibration, repose
-        ├── CoordinateMapper.kt    ← HK1980 → temi affine transform + persistence
-        ├── MqttRelayManager.kt    ← MQTT client (subscribe commands, publish status)
-        └── Config.kt              ← Constants: broker URL, topics, mapping settings
+        ├── RelayActivity.kt          ← Main UI: command handler, calibration, repose
+        ├── CoordinateMapper.kt       ← HK1980 → temi affine transform + persistence
+        ├── MqttRelayManager.kt       ← MQTT client (subscribe commands, publish status)
+        ├── MqttForegroundService.kt  ← Foreground service with WakeLock for keep-alive
+        └── Config.kt                 ← Constants: broker URL, topics, mapping settings
 ```
 
 ## Source Files
@@ -172,6 +219,17 @@ Main activity — handles MQTT messages, calibration UI, and repose calls.
 - **`refreshCalibrationUI()`** — Updates calibration status display
 - **`updateRobotPositionDisplay()`** — Shows current robot x/y/yaw from `Robot.getInstance().getPosition()`
 - **`onReposeStatusChanged(status, description)`** — Callback for repose lifecycle events, publishes to `temi/status`
+- **`requestBatteryOptimizationExemption()`** — Prompts user to exempt app from Doze battery optimization
+
+### MqttForegroundService.kt
+
+Persistent foreground service for keep-alive.
+
+- **`start(context)` / `stop(context)`** — Static helpers to start/stop the service
+- **`acquireWakeLock()`** — Acquires `PARTIAL_WAKE_LOCK` to keep CPU running while screen is off
+- **`buildNotification(text)`** — Creates low-priority persistent notification
+- **`updateNotification(text)`** — Updates notification text at runtime
+- Uses `START_STICKY` to auto-restart if killed by the system
 
 ### CoordinateMapper.kt
 
@@ -285,6 +343,8 @@ When a message arrives on `temi/command`:
 | Robot repositions to wrong location | Recalibrate with anchors farther apart. Verify phone is sending accurate data. |
 | Anchors too close error | Choose calibration points at least 0.5 m (ideally 2+ m) apart. |
 | App crashes on start | Ensure this app runs on the temi robot's tablet, not a regular phone. |
+| MQTT disconnects when idle | Ensure foreground service is running (persistent notification visible). Disable battery optimization. See [Background / Keep-Alive](#background--keep-alive). |
+| No notification on Android 13+ | Grant notification permission when prompted, or enable in Settings → Apps → Temi Relay → Notifications. |
 
 ## Related
 
