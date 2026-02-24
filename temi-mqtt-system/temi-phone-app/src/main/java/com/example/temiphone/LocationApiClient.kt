@@ -4,13 +4,13 @@ import android.content.Context
 import android.util.Log
 import com.google.gson.Gson
 import com.google.gson.JsonObject
-import zeelo.location.callback.ZeeloLocationCallback
-import zeelo.location.callback.ZeeloLocationDirectionCallback
-import zeelo.location.callback.ZeeloLocationZoneCallback
-import zeelo.location.data.GPSLocation
-import zeelo.location.data.Location
-import zeelo.location.data.LocationSource
-import zeelo.location.manager.ZeeloLocationManager
+import com.cherrypicks.zeelosdk.lite.location.ZeeloLocationCallback
+import com.cherrypicks.zeelosdk.lite.location.ZeeloLocationDirectionCallback
+import com.cherrypicks.zeelosdk.lite.location.ZeeloLocationZoneCallback
+import com.cherrypicks.zeelosdk.lite.location.model.GPSLocation
+import com.cherrypicks.zeelosdk.lite.location.model.Location
+import com.cherrypicks.zeelosdk.lite.location.model.Source
+import com.cherrypicks.zeelosdk.lite.location.ZeeloLocationManager
 
 class LocationApiClient(private val context: Context) {
 
@@ -21,7 +21,7 @@ class LocationApiClient(private val context: Context) {
     // Current location state
     private var currentLocation: Location? = null
     private var currentGpsLocation: GPSLocation? = null
-    private var currentLocationSource: LocationSource? = null
+    private var currentLocationSource: Source? = null
     private var currentDirection: Double = 0.0
     private var currentGeofenceId: String = ""
     private var currentGeofenceName: String = ""
@@ -31,7 +31,7 @@ class LocationApiClient(private val context: Context) {
     }
 
     interface LocationCallback {
-        fun onLocationUpdated(location: Location?, gpsLocation: GPSLocation?, source: LocationSource?)
+        fun onLocationUpdated(location: Location?, gpsLocation: GPSLocation?, source: Source?)
         fun onError(error: String)
     }
 
@@ -75,7 +75,7 @@ class LocationApiClient(private val context: Context) {
                 override fun onUpdateLocation(
                     location: Location?,
                     gpsLocation: GPSLocation?,
-                    locationSource: LocationSource?
+                    locationSource: Source?
                 ) {
                     try {
                         currentLocation = location
@@ -83,7 +83,7 @@ class LocationApiClient(private val context: Context) {
                         currentLocationSource = locationSource
                         
                         // Log the active source and its resolved coordinates
-                        val srcName = locationSource?.source?.toString() ?: "Unknown"
+                        val srcName = locationSource?.toString() ?: "Unknown"
                         val isIndoor = srcName == "LocationEngine"
                         val activeLat = if (isIndoor) location?.latitude else gpsLocation?.latitude
                         val activeLon = if (isIndoor) location?.longitude else gpsLocation?.longitude
@@ -93,7 +93,7 @@ class LocationApiClient(private val context: Context) {
                         Log.d(TAG, "Location updated [source=$srcName]: " +
                             "lat=$activeLat, lon=$activeLon, " +
                             "hkE=$activeHkE, hkN=$activeHkN, " +
-                            "floor=${if (isIndoor) location?.floorLevel else gpsLocation?.floorLevel}, " +
+                            "floor=${if (isIndoor) location?.floorLevel else gpsLocation?.floorlevel}, " +
                             "geofence=${location?.geofenceName}")
                         
                         // Notify callback
@@ -204,7 +204,7 @@ class LocationApiClient(private val context: Context) {
      * "LocationEngine" = Zeelo indoor, "GPS" = GPS fallback.
      */
     fun getLocationSourceName(): String {
-        return currentLocationSource?.source?.toString() ?: "Unknown"
+        return currentLocationSource?.toString() ?: "Unknown"
     }
 
     /**
@@ -234,7 +234,7 @@ class LocationApiClient(private val context: Context) {
         if (isIndoorSource()) currentLocation?.hkN else currentGpsLocation?.hkN
 
     fun getActiveFloorLevel(): Int? =
-        if (isIndoorSource()) currentLocation?.floorLevel else currentGpsLocation?.floorLevel
+        if (isIndoorSource()) currentLocation?.floorLevel else currentGpsLocation?.floorlevel?.toInt()
 
     // ────────────────────── JSON export ────────────────────────────────
 
@@ -281,7 +281,7 @@ class LocationApiClient(private val context: Context) {
                         addProperty("longitude", currentGpsLocation?.longitude)
                         addProperty("hkE", currentGpsLocation?.hkE)
                         addProperty("hkN", currentGpsLocation?.hkN)
-                        addProperty("floorLevel", currentGpsLocation?.floorLevel)
+                        addProperty("floorLevel", currentGpsLocation?.floorlevel)
                         addProperty("isOutDoor", true)
                         addProperty("geofenceName", "")
                         addProperty("geofenceId", "")
@@ -297,7 +297,7 @@ class LocationApiClient(private val context: Context) {
                         addProperty("longitude", currentGpsLocation?.longitude)
                         addProperty("hkE", currentGpsLocation?.hkE)
                         addProperty("hkN", currentGpsLocation?.hkN)
-                        addProperty("floorLevel", currentGpsLocation?.floorLevel)
+                        addProperty("floorLevel", currentGpsLocation?.floorlevel)
                         addProperty("horizontalAccuracy", currentGpsLocation?.horizontalAccuracy)
                         addProperty("direction", currentGpsLocation?.direction)
                         addProperty("directionAccuracy", currentGpsLocation?.directionAccuracy)

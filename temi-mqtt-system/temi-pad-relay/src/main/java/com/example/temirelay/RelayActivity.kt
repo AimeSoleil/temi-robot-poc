@@ -8,9 +8,9 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.gson.Gson
 import com.google.gson.JsonObject
-import com.robotemi.sdk.Position
+import com.robotemi.sdk.navigation.model.Position
 import com.robotemi.sdk.Robot
-import com.robotemi.sdk.listeners.OnReposeStatusChangedListener
+import com.robotemi.sdk.navigation.listener.OnReposeStatusChangedListener
 import com.robotemi.sdk.listeners.OnRobotReadyListener
 import android.content.Intent
 import android.net.Uri

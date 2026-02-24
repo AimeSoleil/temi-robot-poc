@@ -3,7 +3,7 @@ package com.example.temirelay
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
-import com.robotemi.sdk.Position
+import com.robotemi.sdk.navigation.model.Position
 import kotlin.math.*
 
 /**

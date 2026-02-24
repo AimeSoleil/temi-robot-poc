@@ -50,7 +50,7 @@ dependencies {
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     
     // Zeelo Location SDK
-    implementation files('libs/zeelo_location_prod_2.2.0.aar')
+    implementation(name: 'zeelo_location_prod_2.2.0', ext: 'aar')
     
     // Zeelo SDK dependencies
     implementation 'org.greenrobot:eventbus:3.3.1'

@@ -135,9 +135,9 @@ class ControllerActivity : AppCompatActivity() {
         locationApiClient = LocationApiClient(this)
         locationApiClient.initializeZeeloSDK(object : LocationApiClient.LocationCallback {
             override fun onLocationUpdated(
-                location: zeelo.location.data.Location?,
-                gpsLocation: zeelo.location.data.GPSLocation?,
-                source: zeelo.location.data.LocationSource?
+                location: com.cherrypicks.zeelosdk.lite.location.model.Location?,
+                gpsLocation: com.cherrypicks.zeelosdk.lite.location.model.GPSLocation?,
+                source: com.cherrypicks.zeelosdk.lite.location.model.Source?
             ) {
                 runOnUiThread {
                     updateZeeloLocationDisplay()
