@@ -115,7 +115,7 @@ Open the `temi-mqtt-system/temi-pad-relay` directory as an Android project.
 Edit `Config.kt`:
 
 ```kotlin
-const val MQTT_BROKER_URL = "tcp://YOUR_SERVER_IP:1883"
+const val MQTT_BROKER_URL = "tcp://YOUR_SERVER_IP:1884"
 ```
 
 Replace `YOUR_SERVER_IP` with the IP of the machine running Mosquitto.
@@ -137,7 +137,7 @@ Replace `YOUR_SERVER_IP` with the IP of the machine running Mosquitto.
 
 | Constant | Default | Description |
 |----------|---------|-------------|
-| `MQTT_BROKER_URL` | `tcp://YOUR_SERVER_IP:1883` | MQTT broker address |
+| `MQTT_BROKER_URL` | `tcp://YOUR_SERVER_IP:1884` | MQTT broker address |
 | `MQTT_USERNAME` | `temi` | MQTT username |
 | `MQTT_PASSWORD` | `temi2026` | MQTT password |
 | `MQTT_CLIENT_ID` | `temi-pad-relay` | MQTT client identifier |

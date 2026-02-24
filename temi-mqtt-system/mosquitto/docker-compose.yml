@@ -5,8 +5,8 @@ services:
     container_name: temi-mqtt-broker
     restart: unless-stopped
     ports:
-      - "1883:1883"
-      - "9001:9001"
+      - "1884:1884"
+      - "9002:9002"
     volumes:
       - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
       - ./password.txt:/mosquitto/config/password.txt

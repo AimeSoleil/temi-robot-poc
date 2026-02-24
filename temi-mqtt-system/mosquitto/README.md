@@ -8,8 +8,8 @@ MQTT message broker for the temi-robot-poc system. Runs via **Docker Compose** u
 Phone App ─── publishes ──→  ┌────────────────────────┐  ←── subscribes ─── Relay App
               temi/command   │  Mosquitto Broker       │      temi/command
                              │  (eclipse-mosquitto:2)  │
-Phone App ←── subscribes ──  │  Port 1883 (MQTT)       │  ──→ publishes ─── Relay App
-              temi/status    │  Port 9001 (WebSocket)   │      temi/status
+Phone App ←── subscribes ──  │  Port 1884 (MQTT)       │  ──→ publishes ─── Relay App
+              temi/status    │  Port 9002 (WebSocket)   │      temi/status
                              └────────────────────────┘
 ```
 
@@ -44,7 +44,7 @@ The `setup.sh` script will:
 docker ps
 ```
 
-You should see a container named **`temi-mqtt-broker`** running with ports `1883` and `9001` mapped.
+You should see a container named **`temi-mqtt-broker`** running with ports `1884` and `9002` mapped.
 
 ### Note Your Server IP
 
@@ -78,8 +78,8 @@ hostname -I
 
 | Port | Protocol | Purpose |
 |------|----------|---------|
-| **1883** | MQTT (TCP) | Standard MQTT connections from Android apps |
-| **9001** | WebSocket | WebSocket-based MQTT (for web clients or debugging tools) |
+| **1884** | MQTT (TCP) | Standard MQTT connections from Android apps |
+| **9002** | WebSocket | WebSocket-based MQTT (for web clients or debugging tools) |
 
 ### mosquitto.conf
 
@@ -87,8 +87,8 @@ hostname -I
 |---------|-------|-------------|
 | `persistence` | `true` | Retained messages survive broker restarts |
 | `log_dest` | `file /mosquitto/log/mosquitto.log` | Log to file inside the container |
-| `listener 1883` | protocol `mqtt` | Main MQTT listener |
-| `listener 9001` | protocol `websockets` | WebSocket listener |
+| `listener 1884` | protocol `mqtt` | Main MQTT listener |
+| `listener 9002` | protocol `websockets` | WebSocket listener |
 | `allow_anonymous` | `false` | Require username/password authentication |
 | `password_file` | `/mosquitto/config/password.txt` | Path to the hashed credentials file |
 
@@ -144,7 +144,7 @@ docker exec temi-mqtt-broker mosquitto_sub -u temi -P temi2026 -t "test/hello"
 docker exec temi-mqtt-broker mosquitto_pub -u temi -P temi2026 -t "test/hello" -m "Hello from broker"
 ```
 
-Or use a GUI tool like [MQTTX](https://mqttx.app/) to connect to `mqtt://YOUR_SERVER_IP:1883`.
+Or use a GUI tool like [MQTTX](https://mqttx.app/) to connect to `mqtt://YOUR_SERVER_IP:1884`.
 
 ## MQTT Topics
 
@@ -160,7 +160,7 @@ See the [root README](../../README.md) for full message payload specifications.
 | Problem | Solution |
 |---------|----------|
 | Container won't start | Check Docker is running: `docker info` |
-| Port already in use | Another process is using 1883/9001. Run `lsof -i :1883` to find it. |
-| Connection refused from apps | Ensure the server IP is correct and firewall allows 1883. Try `telnet YOUR_IP 1883`. |
+| Port already in use | Another process is using 1884/9002. Run `lsof -i :1884` to find it. |
+| Connection refused from apps | Ensure the server IP is correct and firewall allows 1884. Try `telnet YOUR_IP 1884`. |
 | Authentication error | Re-run `setup.sh` to regenerate the password file, or manually reset credentials. |
 | Broker stops unexpectedly | Check logs: `docker compose logs` — look for config errors or permission issues. |

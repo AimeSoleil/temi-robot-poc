@@ -9,4 +9,4 @@ docker run --rm -v $(pwd):/data eclipse-mosquitto:2 \
 echo "Starting MQTT broker..."
 docker compose up -d
 
-echo "MQTT broker is running on port 1883 (MQTT) and 9001 (WebSocket)"
+echo "MQTT broker is running on port 1884 (MQTT) and 9002 (WebSocket)"
