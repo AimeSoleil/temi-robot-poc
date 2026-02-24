@@ -21,6 +21,11 @@ release/
 .gradle/
 build/
 
+# Gradle wrapper (keep these checked in)
+!gradle/wrapper/gradle-wrapper.jar
+!gradlew
+!gradlew.bat
+
 # Local configuration file (sdk path, etc)
 local.properties
 
@@ -42,6 +47,9 @@ captures/
 .externalNativeBuild/
 .cxx/
 
+# Google Services (may contain API keys)
+google-services.json
+
 # ────────────────────────── Zeelo SDK ──────────────────────────────────
 # AAR files are ignored globally, but we need the Zeelo SDK AAR
 *.aar
@@ -58,9 +66,20 @@ __pycache__/
 temi-mqtt-system/mosquitto/data/
 temi-mqtt-system/mosquitto/log/
 
+# ────────────────────────── Node.js ────────────────────────────────────
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
 # ────────────────────────── OS / Editor ────────────────────────────────
 .DS_Store
 Thumbs.db
 *.swp
 *.swo
 *~
+
+# ────────────────────────── Misc ───────────────────────────────────────
+*.log
+*.tmp
+*.bak

@@ -9,7 +9,7 @@ Phone App ─── publishes ──→  ┌────────────
               temi/command   │  Mosquitto Broker       │      temi/command
                              │  (eclipse-mosquitto:2)  │
 Phone App ←── subscribes ──  │  Port 1884 (MQTT)       │  ──→ publishes ─── Relay App
-              temi/status    │  Port 9002 (WebSocket)   │      temi/status
+              temi/status    │  Port 9003 (WebSocket)   │      temi/status
                              └────────────────────────┘
 ```
 
@@ -44,7 +44,7 @@ The `setup.sh` script will:
 docker ps
 ```
 
-You should see a container named **`temi-mqtt-broker`** running with ports `1884` and `9002` mapped.
+You should see a container named **`temi-mqtt-broker`** running with ports `1884` and `9003` mapped.
 
 ### Note Your Server IP
 
@@ -70,7 +70,8 @@ hostname -I
 > **Security:** For production, change credentials by editing `setup.sh` before first run, or manually update the password file:
 > ```bash
 > docker run --rm -v $(pwd)/password.txt:/tmp/pw eclipse-mosquitto:2 \
->     mosquitto_passwd -b /tmp/pw temi YOUR_NEW_PASSWORD
+>     mosquitto_passwd -b /tmp/docker exec temi-mqtt-broker mosquitto_sub -u temi -P temi2026 -t "test/hello"
+pw temi YOUR_NEW_PASSWORD
 > docker compose restart
 > ```
 
@@ -79,7 +80,7 @@ hostname -I
 | Port | Protocol | Purpose |
 |------|----------|---------|
 | **1884** | MQTT (TCP) | Standard MQTT connections from Android apps |
-| **9002** | WebSocket | WebSocket-based MQTT (for web clients or debugging tools) |
+| **9003** | WebSocket | WebSocket-based MQTT (for web clients or debugging tools) |
 
 ### mosquitto.conf
 
@@ -88,7 +89,7 @@ hostname -I
 | `persistence` | `true` | Retained messages survive broker restarts |
 | `log_dest` | `file /mosquitto/log/mosquitto.log` | Log to file inside the container |
 | `listener 1884` | protocol `mqtt` | Main MQTT listener |
-| `listener 9002` | protocol `websockets` | WebSocket listener |
+| `listener 9003` | protocol `websockets` | WebSocket listener |
 | `allow_anonymous` | `false` | Require username/password authentication |
 | `password_file` | `/mosquitto/config/password.txt` | Path to the hashed credentials file |
 
@@ -160,7 +161,7 @@ See the [root README](../../README.md) for full message payload specifications.
 | Problem | Solution |
 |---------|----------|
 | Container won't start | Check Docker is running: `docker info` |
-| Port already in use | Another process is using 1884/9002. Run `lsof -i :1884` to find it. |
+| Port already in use | Another process is using 1884/9003. Run `lsof -i :1884` to find it. |
 | Connection refused from apps | Ensure the server IP is correct and firewall allows 1884. Try `telnet YOUR_IP 1884`. |
 | Authentication error | Re-run `setup.sh` to regenerate the password file, or manually reset credentials. |
 | Broker stops unexpectedly | Check logs: `docker compose logs` — look for config errors or permission issues. |
